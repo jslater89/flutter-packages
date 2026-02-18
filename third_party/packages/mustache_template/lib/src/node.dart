@@ -19,6 +19,8 @@ abstract class Visitor {
   void visitVariable(VariableNode node);
   void visitSection(SectionNode node);
   void visitPartial(PartialNode node);
+  void visitParent(ParentNode node);
+  void visitBlock(BlockNode node);
 }
 
 class TextNode extends Node {
@@ -52,7 +54,21 @@ class VariableNode extends Node {
   String toString() => '(VariableNode "$name" escape: $escape $start $end)';
 }
 
-class SectionNode extends Node {
+abstract class ContainerNode extends Node {
+  ContainerNode(super.start, super.end);
+
+  String get name;
+  List<Node> get children;
+
+  @override
+  void visitChildren(Visitor visitor) {
+    for (final Node node in children) {
+      node.accept(visitor);
+    }
+  }
+}
+
+class SectionNode extends ContainerNode {
   SectionNode(
     this.name,
     int start,
@@ -62,25 +78,61 @@ class SectionNode extends Node {
   }) : contentStart = end,
        super(start, end);
 
+  @override
   final String name;
   final String delimiters;
   final bool inverse;
   final int contentStart;
   int? contentEnd; // Set in parser when close tag is parsed.
+  @override
   final List<Node> children = <Node>[];
 
   @override
   void accept(Visitor visitor) => visitor.visitSection(this);
 
   @override
-  void visitChildren(Visitor visitor) {
-    for (final Node node in children) {
-      node.accept(visitor);
-    }
-  }
+  String toString() => '(SectionNode $name inverse: $inverse $start $end)';
+}
+
+class ParentNode extends ContainerNode {
+  ParentNode(this.name, int start, int end, this.indent) : super(start, end);
 
   @override
-  String toString() => '(SectionNode $name inverse: $inverse $start $end)';
+  final String name;
+
+  // Used to store the preceding whitespace before a parent tag, so that
+  // its content can be correctly indented (standalone parent behavior).
+  final String indent;
+
+  @override
+  final List<Node> children = <Node>[];
+
+  @override
+  void accept(Visitor visitor) => visitor.visitParent(this);
+
+  @override
+  String toString() => '(ParentNode $name $start $end "$indent")';
+}
+
+class BlockNode extends ContainerNode {
+  BlockNode(this.name, int start, int end, {this.indent = ''})
+    : super(start, end);
+
+  @override
+  final String name;
+
+  /// When the block tag is standalone, preceding whitespace is stored so that
+  /// override content can be reindented to match the expansion site.
+  final String indent;
+
+  @override
+  final List<Node> children = <Node>[];
+
+  @override
+  void accept(Visitor visitor) => visitor.visitBlock(this);
+
+  @override
+  String toString() => '(BlockNode $name $start $end)';
 }
 
 class PartialNode extends Node {

@@ -225,6 +225,8 @@ class Scanner {
         case _GT:
         case _AMP:
         case _EXCLAIM:
+        case _DOLLAR:
+        case _LT:
           _read();
           token = TokenType.sigil;
           value = String.fromCharCode(c);
@@ -253,6 +255,8 @@ class Scanner {
                   _GT,
                   _AMP,
                   _EXCLAIM,
+                  _DOLLAR,
+                  _LT,
                   _SPACE,
                   _TAB,
                   _NEWLINE,
@@ -379,9 +383,11 @@ const int _RETURN = 13;
 const int _SPACE = 32;
 const int _EXCLAIM = 33;
 const int _HASH = 35;
+const int _DOLLAR = 36;
 const int _AMP = 38;
 const int _PERIOD = 46;
 const int _FORWARD_SLASH = 47;
+const int _LT = 60;
 const int _EQUAL = 61;
 const int _GT = 62;
 const int _CARET = 94;

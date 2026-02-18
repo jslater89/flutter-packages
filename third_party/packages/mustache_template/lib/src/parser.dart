@@ -37,6 +37,8 @@ class TagType {
   static const TagType partial = TagType('partial');
   static const TagType comment = TagType('comment');
   static const TagType changeDelimiter = TagType('changeDelimiter');
+  static const TagType openParent = TagType('openParent');
+  static const TagType openBlock = TagType('openBlock');
 }
 
 class Parser {
@@ -56,10 +58,14 @@ class Parser {
   final String? _templateName;
   final String _delimiters;
   final Scanner _scanner;
-  final List<SectionNode> _stack = <SectionNode>[];
+  final List<ContainerNode> _stack = <ContainerNode>[];
   late List<Token> _tokens;
   late String _currentDelimiters;
   int _offset = 0;
+
+  /// Whitespace before a block or parent tag at line start becomes that tag's indent.
+  String? _pendingWhitespace;
+  bool _afterLineEnd = true;
 
   List<Node> parse() {
     _tokens = _scanner.scan();
@@ -78,14 +84,37 @@ class Parser {
     for (Token? token = _peek(); token != null; token = _peek()) {
       switch (token.type) {
         case TokenType.text:
-        case TokenType.whitespace:
+          _flushPendingWhitespace();
+          _afterLineEnd = false;
           _read();
           _appendTextToken(token);
 
+        case TokenType.whitespace:
+          _read();
+          if (_afterLineEnd) {
+            _pendingWhitespace = (_pendingWhitespace ?? '') + token.value;
+          } else {
+            _flushPendingWhitespace();
+            _appendTextToken(token);
+          }
+
         case TokenType.openDelimiter:
           final Tag? tag = _readTag();
-          final Node? node = _createNodeFromTag(tag);
+          final bool atLineStart = _afterLineEnd;
+          final String indent = (atLineStart && _pendingWhitespace != null)
+              ? _pendingWhitespace!
+              : '';
+          _pendingWhitespace = null;
+          _afterLineEnd = false;
+          final Node? node = _createNodeFromTag(tag, partialIndent: indent);
           if (tag != null) {
+            final bool consumesIndent =
+                (tag.type == TagType.openBlock ||
+                    tag.type == TagType.openParent) &&
+                atLineStart;
+            if (!consumesIndent && indent.isNotEmpty) {
+              _appendTextToken(Token(TokenType.whitespace, indent, 0, 0));
+            }
             _appendTag(tag, node);
           }
 
@@ -94,6 +123,8 @@ class Parser {
           _currentDelimiters = token.value;
 
         case TokenType.lineEnd:
+          _flushPendingWhitespace();
+          _afterLineEnd = true;
           _appendTextToken(_read()!);
           _parseLine();
 
@@ -152,6 +183,13 @@ class Parser {
   TemplateException _error(String msg, int offset) =>
       TemplateException(msg, _templateName, _source, offset);
 
+  void _flushPendingWhitespace() {
+    if (_pendingWhitespace != null && _pendingWhitespace!.isNotEmpty) {
+      _appendTextToken(Token(TokenType.whitespace, _pendingWhitespace!, 0, 0));
+      _pendingWhitespace = null;
+    }
+  }
+
   // Add a text node to top most section on the stack and merge consecutive
   // text nodes together.
   void _appendTextToken(Token token) {
@@ -172,15 +210,17 @@ class Parser {
     }
   }
 
-  // Add the node to top most section on the stack. If a section node then
-  // push it onto the stack, if a close section tag, then pop the stack.
+  // Add the node to top most section on the stack. If a section/parent/block
+  // node then push it onto the stack, if a close section tag, then pop.
   void _appendTag(Tag tag, Node? node) {
     switch (tag.type) {
-      // {{#...}}  {{^...}}
+      // {{#...}}  {{^...}}  {{<...}}  {{$...}}
       case TagType.openSection:
       case TagType.openInverseSection:
+      case TagType.openParent:
+      case TagType.openBlock:
         _stack.last.children.add(node!);
-        _stack.add(node as SectionNode);
+        _stack.add(node as ContainerNode);
 
       // {{/...}}
       case TagType.closeSection:
@@ -193,8 +233,10 @@ class Parser {
             tag.start,
           );
         }
-        final SectionNode node = _stack.removeLast();
-        node.contentEnd = tag.start;
+        final ContainerNode popped = _stack.removeLast();
+        if (popped is SectionNode) {
+          popped.contentEnd = tag.start;
+        }
 
       // {{...}} {{&...}} {{{...}}}
       case TagType.variable:
@@ -217,7 +259,7 @@ class Parser {
 
   // Handle standalone tags and indented partials.
   //
-  // A "standalone tag" in the spec is a tag one a line where the line only
+  // A "standalone tag" in the spec is one or more tags on a line where the line only
   // contains whitespace. During rendering the whitespace is omitted.
   // Standalone partials also indent their content to match the tag during
   // rendering.
@@ -233,10 +275,12 @@ class Parser {
       _appendTextToken(t);
     }
 
-    // Continue parsing standalone lines until we find one than isn't a
+    // Continue parsing standalone lines until we find one that isn't a
     // standalone line.
     while (_peek() != null) {
       _readIf(TokenType.lineEnd, eofOk: true);
+
+
       final Token? precedingWhitespace = _readIf(
         TokenType.whitespace,
         eofOk: true,
@@ -244,6 +288,7 @@ class Parser {
       final String indent = precedingWhitespace == null
           ? ''
           : precedingWhitespace.value;
+
       final Tag? tag = _readTag();
       final Node? tagNode = _createNodeFromTag(tag, partialIndent: indent);
       final Token? followingWhitespace = _readIf(
@@ -256,6 +301,8 @@ class Parser {
         TagType.closeSection,
         TagType.openInverseSection,
         TagType.partial,
+        TagType.openParent,
+        TagType.openBlock,
         TagType.comment,
         TagType.changeDelimiter,
       ];
@@ -270,7 +317,13 @@ class Parser {
       } else {
         // This is not a standalone line so add the whitespace to the ast.
         if (precedingWhitespace != null) {
-          _appendTextToken(precedingWhitespace);
+          // openBlock is a special case: even though it occurs inline here rather than standalone,
+          // we don't want to include the preceding whitespace separately in the AST, because openBlock's
+          // indent already sets the preceding whitespace.
+          final bool includePrecedingWhitespace = tag == null || tag.type != TagType.openBlock;
+          if (includePrecedingWhitespace) {
+            _appendTextToken(precedingWhitespace);
+          }
         }
         if (tag != null) {
           _appendTag(tag, tagNode);
@@ -293,6 +346,8 @@ class Parser {
     '&': TagType.unescapedVariable,
     '>': TagType.partial,
     '!': TagType.comment,
+    '<': TagType.openParent,
+    r'$': TagType.openBlock,
   };
 
   // If open delimiter, or change delimiter token then return a tag.
@@ -403,6 +458,12 @@ class Parser {
 
       case TagType.partial:
         node = PartialNode(tag.name, tag.start, tag.end, partialIndent);
+
+      case TagType.openParent:
+        node = ParentNode(tag.name, tag.start, tag.end, partialIndent);
+
+      case TagType.openBlock:
+        node = BlockNode(tag.name, tag.start, tag.end, indent: partialIndent);
 
       case TagType.closeSection:
       case TagType.comment:

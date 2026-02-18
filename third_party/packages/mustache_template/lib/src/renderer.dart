@@ -19,8 +19,12 @@ class Renderer extends Visitor {
     this.partialResolver,
     this.templateName,
     this.indent,
-    this.source,
-  ) : _stack = List<Object?>.from(stack);
+    this.source, {
+    Map<String, List<Node>> blockOverrides = const {},
+    Map<String, String> blockIndentOverrides = const {},
+  }) : _stack = List<Object?>.from(stack),
+       _blockOverrides = blockOverrides,
+       _blockIndentOverrides = blockIndentOverrides;
 
   Renderer.partial(Renderer ctx, Template partial, String indent)
     : this(
@@ -33,6 +37,27 @@ class Renderer extends Visitor {
         ctx.indent + indent,
         partial.source,
       );
+
+  Renderer.parent(
+    Renderer ctx,
+    Template parent,
+    String indent,
+    Map<String, List<Node>> blockOverrides, {
+    Map<String, String> blockIndentOverrides = const {},
+  }) : this(
+         ctx.sink,
+         ctx._stack,
+         ctx.lenient,
+         ctx.htmlEscapeValues,
+         ctx.partialResolver,
+         ctx.templateName,
+         ctx.indent + indent,
+         parent.source,
+         blockOverrides: blockOverrides,
+         blockIndentOverrides: blockIndentOverrides.isNotEmpty
+             ? blockIndentOverrides
+             : ctx._blockIndentOverrides,
+       );
 
   Renderer.subtree(Renderer ctx, StringSink sink)
     : this(
@@ -66,6 +91,8 @@ class Renderer extends Visitor {
   final String? templateName;
   final String indent;
   final String source;
+  final Map<String, List<Node>> _blockOverrides;
+  final Map<String, String> _blockIndentOverrides;
 
   void push(Object? value) => _stack.add(value);
 
@@ -237,6 +264,224 @@ class Renderer extends Visitor {
       // do nothing
     } else {
       throw error('Partial not found: $partialName.', node);
+    }
+  }
+
+  @override
+  void visitParent(ParentNode node) {
+    // Collect block overrides from this parent's children (only BlockNodes).
+    final overridesFromChild = <String, List<Node>>{};
+    for (final Node child in node.children) {
+      if (child is BlockNode) {
+        overridesFromChild[child.name] = child.children;
+      }
+    }
+    // Merge with current overrides: existing (outer) overrides take precedence.
+    final merged = Map<String, List<Node>>.from(
+      _blockOverrides,
+    );
+    for (final MapEntry<String, List<Node>> e in overridesFromChild.entries) {
+      merged.putIfAbsent(e.key, () => e.value);
+    }
+    final String parentName = node.name;
+    final Template? template = partialResolver == null
+        ? null
+        : (partialResolver!(parentName) as Template?);
+    if (template != null) {
+      final List<Node> nodes = getTemplateNodes(template);
+      final Map<String, String> templateBlockIndents = _collectBlockIndents(
+        nodes,
+      );
+      final parentIndents = Map<String, String>.from(
+        _blockIndentOverrides,
+      );
+      for (final MapEntry<String, String> e in templateBlockIndents.entries) {
+        parentIndents.putIfAbsent(e.key, () => e.value);
+      }
+      final renderer = Renderer.parent(
+        this,
+        template,
+        node.indent,
+        merged,
+        blockIndentOverrides: parentIndents,
+      );
+      renderer.render(nodes);
+    } else if (lenient) {
+      // do nothing
+    } else {
+      throw error('Parent not found: $parentName.', node);
+    }
+  }
+
+  @override
+  void visitBlock(BlockNode node) {
+    final List<Node>? override = _blockOverrides[node.name];
+    if (override != null && override.isNotEmpty) {
+      _renderBlockOverride(node, override);
+    } else {
+      node.visitChildren(this);
+    }
+  }
+
+  /// Expansion indent for a block (from this template or from indent overrides).
+  String _expansionIndentFor(BlockNode block) {
+    return _blockIndentOverrides[block.name] ??
+        (block.indent.isNotEmpty
+            ? block.indent
+            : _computeIndentFromContent(block.children));
+  }
+
+  /// Collects block name -> expansion indent for all BlockNodes in [nodes].
+  Map<String, String> _collectBlockIndents(List<Node> nodes) {
+    final out = <String, String>{};
+    void visit(Node n) {
+      if (n is BlockNode) {
+        out[n.name] = n.indent.isNotEmpty
+            ? n.indent
+            : _computeIndentFromContent(n.children);
+      }
+      if (n is ContainerNode) {
+        n.children.forEach(visit);
+      }
+    }
+    nodes.forEach(visit);
+    return out;
+  }
+
+  /// Renders block override content with reindentation: strip common leading
+  /// whitespace from the override, then apply the block's expansion indent.
+  /// When the override contains nested BlockNodes, we render directly so each
+  /// block gets its own expansion indent.
+  void _renderBlockOverride(BlockNode block, List<Node> overrideNodes) {
+    final bool hasNestedBlocks =
+        overrideNodes.any((Node n) => n is BlockNode || n is ParentNode);
+    if (hasNestedBlocks) {
+      final childIndents = Map<String, String>.from(
+        _blockIndentOverrides,
+      );
+      childIndents[block.name] = _expansionIndentFor(block);
+      final String raw = _renderNodesToString(overrideNodes, childIndents);
+      var out = raw;
+      if (out.startsWith('\n')) {
+        out = out.substring(1);
+      }
+      write(out);
+      return;
+    }
+    final String expansionIndent = _expansionIndentFor(block);
+    final childIndents = Map<String, String>.from(
+      _blockIndentOverrides,
+    );
+    childIndents[block.name] = expansionIndent;
+    String raw = _renderNodesToString(overrideNodes, childIndents);
+    if (raw.startsWith('\n')) {
+      raw = raw.substring(1);
+    }
+    final String stripped = _stripCommonIndent(raw);
+    _writeReindented(stripped, expansionIndent);
+  }
+
+  String _renderNodesToString(
+    List<Node> nodes, [
+    Map<String, String> blockIndentOverrides = const {},
+  ]) {
+    final buf = StringBuffer();
+    final sub = Renderer(
+      buf,
+      _stack,
+      lenient,
+      htmlEscapeValues,
+      partialResolver,
+      templateName,
+      '',
+      source,
+      blockOverrides: _blockOverrides,
+      blockIndentOverrides: blockIndentOverrides.isNotEmpty
+          ? blockIndentOverrides
+          : _blockIndentOverrides,
+    );
+    for (final n in nodes) {
+      n.accept(sub);
+    }
+    return buf.toString();
+  }
+
+  /// Returns the minimum leading whitespace of non-empty lines (intrinsic indent).
+  static String _computeIndentFromContent(List<Node> nodes) {
+    final String raw = _staticRenderNodesToText(nodes);
+    return _getCommonIndent(raw);
+  }
+
+  static String _staticRenderNodesToText(List<Node> nodes) {
+    final buf = StringBuffer();
+    for (final n in nodes) {
+      if (n is TextNode) {
+        buf.write(n.text);
+      }
+      // Other node types would need a full renderer; for indent we only need text.
+    }
+    return buf.toString();
+  }
+
+  static String _getCommonIndent(String s) {
+    final List<String> lines = s.split('\n');
+    int? minIndent;
+    String? sampleLine;
+    for (final line in lines) {
+      if (line.trim().isEmpty) {
+        continue;
+      }
+      final int leading = line.length - line.trimLeft().length;
+      if (minIndent == null || leading < minIndent) {
+        minIndent = leading;
+        sampleLine = line;
+      }
+    }
+    if (minIndent == null || minIndent == 0 || sampleLine == null) {
+      return '';
+    }
+    return sampleLine.substring(0, minIndent);
+  }
+
+  static String _stripCommonIndent(String s) {
+    final List<String> lines = s.split('\n');
+    final String common = _getCommonIndent(s);
+    if (common.isEmpty) {
+      return s;
+    }
+    final int n = common.length;
+    return lines
+      .map((String line) {
+        if (line.trim().isEmpty) {
+          return line;
+        }
+        if (line.length >= n && line.startsWith(common)) {
+          return line.substring(n);
+        }
+        return line;
+      })
+      .join('\n');
+  }
+
+  void _writeReindented(String content, String expansionIndent) {
+    if (expansionIndent.isEmpty) {
+      write(content);
+      return;
+    }
+    if (content.isEmpty) {
+      return;
+    }
+    final List<String> lines = content.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) {
+        write('\n');
+      }
+      final String line = lines[i];
+      // Only add indent to non-empty lines (spec: don't indent blank lines).
+      if (line.isNotEmpty) {
+        write(expansionIndent);
+      }
+      write(line);
     }
   }
 

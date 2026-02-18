@@ -81,7 +81,7 @@ class LambdaContext implements m.LambdaContext {
       return '';
     }
 
-    final SectionNode node = _node;
+    final node = _node as SectionNode;
     final List<Node> nodes = node.children;
     if (nodes.isEmpty) {
       return '';
@@ -102,7 +102,7 @@ class LambdaContext implements m.LambdaContext {
     // Lambdas used for sections should parse with the current delimiters.
     var delimiters = '{{ }}';
     if (_node is SectionNode) {
-      final SectionNode node = _node;
+      final node = _node as SectionNode;
       delimiters = node.delimiters;
     }
 
