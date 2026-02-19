@@ -296,7 +296,7 @@ class Renderer extends Visitor {
         _blockIndentOverrides,
       );
       for (final MapEntry<String, String> e in templateBlockIndents.entries) {
-        parentIndents.putIfAbsent(e.key, () => e.value);
+        parentIndents[e.key] = e.value;
       }
       final renderer = Renderer.parent(
         this,
@@ -350,35 +350,65 @@ class Renderer extends Visitor {
 
   /// Renders block override content with reindentation: strip common leading
   /// whitespace from the override, then apply the block's expansion indent.
-  /// When the override contains nested BlockNodes, we render directly so each
-  /// block gets its own expansion indent.
+  ///
+  /// When the override contains nested blocks, each level is stripped and
+  /// reindented independently so that inner blocks keep the indentation their
+  /// own [_renderBlockOverride] applied.
   void _renderBlockOverride(BlockNode block, List<Node> overrideNodes) {
-    final bool hasNestedBlocks =
-        overrideNodes.any((Node n) => n is BlockNode || n is ParentNode);
-    if (hasNestedBlocks) {
-      final childIndents = Map<String, String>.from(
-        _blockIndentOverrides,
-      );
-      childIndents[block.name] = _expansionIndentFor(block);
-      final String raw = _renderNodesToString(overrideNodes, childIndents);
-      var out = raw;
-      if (out.startsWith('\n')) {
-        out = out.substring(1);
-      }
-      write(out);
-      return;
-    }
     final String expansionIndent = _expansionIndentFor(block);
     final childIndents = Map<String, String>.from(
       _blockIndentOverrides,
     );
     childIndents[block.name] = expansionIndent;
-    String raw = _renderNodesToString(overrideNodes, childIndents);
-    if (raw.startsWith('\n')) {
-      raw = raw.substring(1);
+
+    final bool hasNestedBlocks =
+        overrideNodes.any((Node n) => n is BlockNode || n is ParentNode);
+
+    if (!hasNestedBlocks) {
+      String raw = _renderNodesToString(overrideNodes, childIndents);
+      if (raw.startsWith('\n')) {
+        raw = raw.substring(1);
+      }
+      final String stripped = _stripCommonIndent(raw);
+      _writeReindented(stripped, expansionIndent);
+      return;
     }
-    final String stripped = _stripCommonIndent(raw);
-    _writeReindented(stripped, expansionIndent);
+
+    // Compute common indent from text nodes at this level only, so that
+    // already-reindented output from nested blocks is not disturbed.
+    String textOnly = _staticRenderNodesToText(overrideNodes);
+    if (textOnly.startsWith('\n')) {
+      textOnly = textOnly.substring(1);
+    }
+    final String commonIndent = _getCommonIndent(textOnly);
+
+    final sub = Renderer(
+      sink,
+      _stack,
+      lenient,
+      htmlEscapeValues,
+      partialResolver,
+      templateName,
+      '',
+      source,
+      blockOverrides: _blockOverrides,
+      blockIndentOverrides: childIndents,
+    );
+
+    var isFirst = true;
+    for (final node in overrideNodes) {
+      if (node is TextNode) {
+        String text = node.text;
+        if (isFirst && text.startsWith('\n')) {
+          text = text.substring(1);
+        }
+        final String stripped = _stripGivenIndent(text, commonIndent);
+        _writeReindented(stripped, expansionIndent);
+      } else {
+        node.accept(sub);
+      }
+      isFirst = false;
+    }
   }
 
   String _renderNodesToString(
@@ -443,24 +473,24 @@ class Renderer extends Visitor {
     return sampleLine.substring(0, minIndent);
   }
 
-  static String _stripCommonIndent(String s) {
-    final List<String> lines = s.split('\n');
-    final String common = _getCommonIndent(s);
-    if (common.isEmpty) {
+  static String _stripGivenIndent(String s, String indent) {
+    if (indent.isEmpty) {
       return s;
     }
-    final int n = common.length;
-    return lines
-      .map((String line) {
-        if (line.trim().isEmpty) {
-          return line;
-        }
-        if (line.length >= n && line.startsWith(common)) {
-          return line.substring(n);
-        }
+    final int n = indent.length;
+    return s.split('\n').map((String line) {
+      if (line.trim().isEmpty) {
         return line;
-      })
-      .join('\n');
+      }
+      if (line.length >= n && line.startsWith(indent)) {
+        return line.substring(n);
+      }
+      return line;
+    }).join('\n');
+  }
+
+  static String _stripCommonIndent(String s) {
+    return _stripGivenIndent(s, _getCommonIndent(s));
   }
 
   void _writeReindented(String content, String expansionIndent) {
