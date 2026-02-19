@@ -58,7 +58,11 @@ void _defineGroupFromFile(String filename, String text) {
       final reason = StringBuffer(
         "Could not render right '''$templateOneline'''",
       );
-      final Object? expected = t['expected'];
+
+      // Patch the expected output for known quirks in the YAML -> JSON conversion.
+      var expected = t['expected']! as String;
+      expected = _patchExpected(filename, t['name']! as String, expected);
+
       final partials = t['partials'] as Map<String, Object?>?;
       String? partial(String name) {
         if (partials == null) {
@@ -79,7 +83,7 @@ void _defineGroupFromFile(String filename, String text) {
         testDescription.toString(),
         () => expect(
           render(template, data, partial: partial),
-          OutputMatcher(expected),
+          expected,
           reason: reason.toString(),
         ),
       );
@@ -87,105 +91,60 @@ void _defineGroupFromFile(String filename, String text) {
   });
 }
 
-/// A matcher that handles a quirk in mustache spec YAML -> JSON conversion,
-/// which causes correctly-implemented mustache implementations to insert
-/// extra newlines when rendering templates from the JSON version of the spec.
-///
-/// Consider this YAML specification block (~inheritance/Block reindentation):
-/// ```yaml
-///    template: |
-///      {{<parent}}{{$block}}
-///          one
-///          two
-///      {{/block}}{{/parent}}
-///    partials:
-///      parent: |
-///        Hi,
-///          {{$block}}
-///          {{/block}}
-///    expected: |
-///      Hi,
-///        one
-///        two
-/// ```
-///
-/// And the corresponding generated JSON:
-/// ```json
-///     {
-///       "template": "{{<parent}}{{$block}}\n    one\n    two\n{{/block}}{{/parent}}\n",
-///       "partials": {
-///         "parent": "Hi,\n  {{$block}}\n  {{/block}}\n",
-///       },
-///       "expected": "Hi,\n  one\n  two\n",
-///     }
-/// ```
-///
-/// The conversion to JSON introduces a newline at the end of every multi-line YAML string:
-/// one each at the end of the parent partial, the template, and the expected output. However,
-/// since the rendered output ends with the end of the parent partial, we get two newlines at
-/// the end of the rendered output vs. one at the end of the expected output.
-///
-/// There is a second case which only occurs once in the specs (~inheritance/Inherit):
-///
-/// ```yaml
-///    template: |
-///      {{<include}}{{/include}}
-///    partials:
-///      include: "{{$foo}}default content{{/foo}}"
-///    expected: "default content"
-/// ```
-///
-/// In this case, the expected output is "default content", but the generated JSON includes
-/// a newline at the end of the expected multi-line template. This matcher handles this case by stripping
-/// the newline from the expected output if it exists.
-///
-/// To handle both cases, the matchers allows an extra newline at the end of the rendered output
-/// if:
-///   1. The rendered output ends in two newlines and the expected output ends in one newline
-///   2. The rendered output ends in one newline and the expected output ends in no newline
-///
-/// Because the mustache specs are written in a variety of styles (some define template, partials,
-/// and expected output as multi-line strings only, some use quoted single-line strings only, and
-/// others mix and match), and the JSON output doesn't include any information about whether the
-/// YAML strings were single-line or multi-line, and further, some of the single-line quoted strings
-/// end in \n newlines, there is no easy solution on the specification parsing side to handle this—
-/// simple solutions like stripping newlines from everything will break other known-working tests.
-class OutputMatcher extends Matcher {
-  OutputMatcher(this.expected) : outputMatcher = equals(expected);
-
-  late final Matcher outputMatcher;
-  final Object? expected;
-
-  @override
-  Description describe(Description description) {
-    return outputMatcher.describe(description);
+/// Patches the expected output for known quirks in the YAML -> JSON conversion.
+String _patchExpected(String filename, String testName, String expected) {
+  if (filename == '~inheritance.json' && testName == 'Standalone block') {
+    return _patchStandaloneBlockExpected(testName, expected);
   }
 
-  @override
-  bool matches(Object? item, Map<dynamic, dynamic> matchState) {
-    final bool equalsExactly = outputMatcher.matches(item, matchState);
-    if (equalsExactly) {
-      return true;
+  return expected;
+}
+
+/// The spec for standalone block is as follows:
+/// ```yaml
+/// name: Standalone block
+/// desc: A block's opening and closing tags need not be on separate lines in order to be standalone
+/// data: {}
+/// template: |
+///   {{<parent}}{{$block}}
+///   one
+///   two{{/block}}
+///   {{/parent}}
+/// partials:
+///   parent: |
+///     Hi,
+///       {{$block}}{{/block}}
+/// expected: |
+///   Hi,
+///     one
+///     two
+/// ```
+///
+/// The | operator implies a trailing newline on all three multi-line strings, but the expected output
+/// should actually end at 'two', without a newline, according to the following rules:
+///
+/// 1. Text inside a parent tag is ignored (see spec 'text inside parent'), so the newline following
+/// {{/block}} in the template should not be rendered.
+/// 2. {{/parent}} is a standalone tag per the mustache definition (a tag that appears on a line with
+/// only whitespace), and the rendered output should not include any whitespace surrounding it or the
+/// newline following it.
+/// 3. {{$block}}{{/block}} in the parent partial is a standalone tag per this test, and it should
+/// not render any whitespace (except for the indentation required by 'inherit indentation' test),
+/// nor the newline following it.
+///
+/// Therefore, we remove the trailing newline from the expected output.
+///
+/// The 'standalone parent' test looks very similar to this one, but its parent partial ends with a
+/// newline.
+String _patchStandaloneBlockExpected(String testName, String expected) {
+  if (testName == 'Standalone block') {
+    if (expected.endsWith('\n')) {
+      return expected.substring(0, expected.length - 1);
+    } else {
+      throw Exception('Expected output for standalone block test is missing a newline');
     }
-
-    // The YAML -> JSON conversion for specs is lossy (per mustache docs). In particular,
-    // YAML multi-line strings are always rendered as JSON strings ending in \n. So, if
-    // we have a template given in a YAML multi-line string, the generated JSON includes
-    // a newline at the end of the template.
-
-    if(expected is String? && item is String) {
-      final expectedString = expected as String?;
-      if(expectedString != null) {
-        if (expectedString.endsWith('\n') && item.endsWith('\n\n')) {
-          item = item.substring(0, item.length - 1);
-        } else if (!expectedString.endsWith('\n') && item.endsWith('\n')) {
-          item = item.substring(0, item.length - 1);
-        }
-      }
-    }
-
-    return outputMatcher.matches(item, matchState);
   }
+  return expected;
 }
 
 bool shouldRun(String filename, List<String> unsupportedSpecs) {
