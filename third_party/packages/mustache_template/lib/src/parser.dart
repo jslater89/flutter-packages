@@ -289,8 +289,19 @@ class Parser {
           ? ''
           : precedingWhitespace.value;
 
-      final Tag? tag = _readTag();
-      final Node? tagNode = _createNodeFromTag(tag, partialIndent: indent);
+      final List<Tag> tags = [];
+      final Map<Tag, Node> tagNodes = {};
+
+      Tag? tag = _readTag();
+      while(tag != null) {
+        tags.add(tag);
+        final Node? node = _createNodeFromTag(tag, partialIndent: indent);
+
+        if(node != null) {
+          tagNodes[tag] = node;
+        }
+        tag = _readTag();
+      }
       final Token? followingWhitespace = _readIf(
         TokenType.whitespace,
         eofOk: true,
@@ -307,26 +318,31 @@ class Parser {
         TagType.changeDelimiter,
       ];
 
-      if (tag != null &&
-          (_peek() == null || _peek()!.type == TokenType.lineEnd) &&
-          standaloneTypes.contains(tag.type)) {
+      final bool isStandaloneLine =
+        tags.isNotEmpty &&
+        tags.every((Tag tag) => standaloneTypes.contains(tag.type)) &&
+        (_peek() == null || _peek()!.type == TokenType.lineEnd);
+
+      if (isStandaloneLine) {
         // This is a tag on a "standalone line", so do not create text nodes
         // for whitespace, or the following newline.
-        _appendTag(tag, tagNode);
+        for(final tag in tags) {
+          _appendTag(tag, tagNodes[tag]);
+        }
         // Now continue to loop and parse the next line.
       } else {
-        // This is not a standalone line so add the whitespace to the ast.
+        // This is not a standalone line so add the whitespace to the AST.
         if (precedingWhitespace != null) {
           // openBlock is a special case: even though it occurs inline here rather than standalone,
           // we don't want to include the preceding whitespace separately in the AST, because openBlock's
           // indent already sets the preceding whitespace.
-          final bool includePrecedingWhitespace = tag == null || tag.type != TagType.openBlock;
+          final bool includePrecedingWhitespace = tags.isEmpty || tags.last.type != TagType.openBlock;
           if (includePrecedingWhitespace) {
             _appendTextToken(precedingWhitespace);
           }
         }
-        if (tag != null) {
-          _appendTag(tag, tagNode);
+        for(final tag in tags) {
+          _appendTag(tag, tagNodes[tag]);
         }
         if (followingWhitespace != null) {
           _appendTextToken(followingWhitespace);
