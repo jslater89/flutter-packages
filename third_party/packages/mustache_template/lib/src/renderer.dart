@@ -313,12 +313,6 @@ class Renderer extends Visitor {
     }
   }
 
-  @override
-  void visitBlock(BlockNode node) {
-    final List<Node> renderNodes = _blockOverrides[node.name] ?? node.children;
-    _renderBlock(node, renderNodes);
-  }
-
   /// Renders a block override. BlockNode is the block in the current template
   /// that is being overridden by a child template. renderNodes is the content
   /// from the child template that should be rendered in place of the block in
@@ -326,13 +320,17 @@ class Renderer extends Visitor {
   ///
   /// Sub-blocks/parents are rendered recursively. All other blocks are rendered
   /// with the indentation from this block.
-  void _renderBlock(BlockNode block, List<Node> renderNodes) {
-    final sub = Renderer.block(
-      this,
-      block,
-    );
+  @override
+  void visitBlock(BlockNode node) {
+    final List<Node> renderNodes = _blockOverrides[node.name] ?? node.children;
 
-    sub.render(renderNodes);
+
+
+    final renderer = Renderer.block(
+      this,
+      node,
+    );
+    renderer.render(renderNodes);
   }
 
   // Walks up the stack looking for the variable.

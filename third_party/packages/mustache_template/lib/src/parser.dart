@@ -338,9 +338,12 @@ class Parser {
     if (intrinsicIndentationFromFirstLine) {
       // Find the first text node in the container.
       TextNode? firstText;
+      Node? nodeAfterFirstText;
       for (final Node child in block.children) {
-        if (child is TextNode) {
+        if (firstText == null && child is TextNode) {
           firstText = child;
+        } else if (firstText != null && nodeAfterFirstText == null) {
+          nodeAfterFirstText = child;
           break;
         }
       }
@@ -358,14 +361,20 @@ class Parser {
           }
         }
 
-        // Find the first line that contains a non-whitespace character in the first text node.
-
-        // \r\n safety: a potential trailing \r per line does not impact the intrinsic indentation.
-        final List<String> lines = firstText.text.split('\n');
+        // Find the first line that isn't just a newline in the first text node.
+        final List<String> lines = firstText.text.split(RegExp(r'\r?\n'));
         for(final line in lines) {
-          if (line.trim().isNotEmpty) {
+          if (line.isNotEmpty) {
             // The leading indentation of that line is the intrinsic indentation.
-            block.indent = line.substring(0, line.indexOf(line.trim()));
+            final int firstNonWhitespaceIndex = line.indexOf(RegExp(r'[\S]'));
+            if (firstNonWhitespaceIndex != -1) {
+              block.indent = line.substring(0, firstNonWhitespaceIndex);
+            } else if (nodeAfterFirstText != null) {
+              // There is a non-text node on this line after the contents of the
+              // first text node, so the intrinsic indentation is the entire 'line'
+              // string (i.e., the whitespace before the non-text node).
+              block.indent = line;
+            }
             break;
           }
         }

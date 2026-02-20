@@ -805,6 +805,59 @@ void main() {
       expect(output, equals('  one\n    three\n'));
      });
 
+     test('Nested block reindentation with interior section', () {
+      const templateSource = r'''
+{{<parent}}{{$block}}
+  {{#section}}three{{/section}}
+{{/block}}{{/parent}}
+''';
+      const parentSource = r'''
+zero
+{{$block}}
+  one
+{{/block}}
+two
+''';
+      final parent = Template(parentSource);
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'parent') {
+          return parent;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{
+        'section': true,
+      });
+      expect(output, equals('zero\n  three\ntwo\n'));
+     });
+
+
+    test('Nested block reindentation with interior variable', () {
+      const templateSource = r'''
+{{<parent}}{{$block}}
+  {{variable}}
+{{/block}}{{/parent}}
+''';
+      const parentSource = r'''
+zero
+{{$block}}
+  one
+{{/block}}
+two
+''';
+      final parent = Template(parentSource);
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'parent') {
+          return parent;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{
+        'variable': 'three',
+      });
+      expect(output, equals('zero\n  three\ntwo\n'));
+     });
+
   });
 
   group('Other', () {
