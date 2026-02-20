@@ -271,12 +271,14 @@ class Renderer extends Visitor {
   void visitParent(ParentNode node) {
     // Collect block overrides from this parent's children (only BlockNodes).
     final overridesFromChild = <String, List<Node>>{};
-    for (final Node child in node.children) {
+
+    for (var i = 0; i < node.children.length; i++) {
+      final Node child = node.children[i];
       if (child is BlockNode) {
         overridesFromChild[child.name] = child.children;
       }
     }
-    // Merge with current overrides: existing (outer) overrides take precedence.
+    // Merge with current overrides: existing (outer/descendant) overrides take precedence.
     final merged = Map<String, List<Node>>.from(
       _blockOverrides,
     );
@@ -295,6 +297,7 @@ class Renderer extends Visitor {
       final parentIndents = Map<String, String>.from(
         _blockIndentOverrides,
       );
+      // Merge with current indents: new (inner/ancestor) overrides take precedence.
       for (final MapEntry<String, String> e in templateBlockIndents.entries) {
         parentIndents[e.key] = e.value;
       }

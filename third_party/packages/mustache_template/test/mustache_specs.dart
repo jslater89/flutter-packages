@@ -59,9 +59,7 @@ void _defineGroupFromFile(String filename, String text) {
         "Could not render right '''$templateOneline'''",
       );
 
-      // Patch the expected output for known quirks in the YAML -> JSON conversion.
-      var expected = t['expected']! as String;
-      expected = _patchExpected(filename, t['name']! as String, expected);
+      final expected = t['expected']! as String;
 
       final partials = t['partials'] as Map<String, Object?>?;
       String? partial(String name) {
@@ -89,62 +87,6 @@ void _defineGroupFromFile(String filename, String text) {
       );
     }
   });
-}
-
-/// Patches the expected output for known quirks in the YAML -> JSON conversion.
-String _patchExpected(String filename, String testName, String expected) {
-  if (filename == '~inheritance.json' && testName == 'Standalone block') {
-    return _patchStandaloneBlockExpected(testName, expected);
-  }
-
-  return expected;
-}
-
-/// The spec for standalone block is as follows:
-/// ```yaml
-/// name: Standalone block
-/// desc: A block's opening and closing tags need not be on separate lines in order to be standalone
-/// data: {}
-/// template: |
-///   {{<parent}}{{$block}}
-///   one
-///   two{{/block}}
-///   {{/parent}}
-/// partials:
-///   parent: |
-///     Hi,
-///       {{$block}}{{/block}}
-/// expected: |
-///   Hi,
-///     one
-///     two
-/// ```
-///
-/// The | operator implies a trailing newline on all three multi-line strings, but the expected output
-/// should actually end at 'two', without a newline, according to the following rules:
-///
-/// 1. Text inside a parent tag is ignored (see spec 'text inside parent'), so the newline following
-/// {{/block}} in the template should not be rendered.
-/// 2. {{/parent}} is a standalone tag per the mustache definition (a tag that appears on a line with
-/// only whitespace), and the rendered output should not include any whitespace surrounding it or the
-/// newline following it.
-/// 3. {{$block}}{{/block}} in the parent partial is a standalone tag per this test, and it should
-/// not render any whitespace (except for the indentation required by 'inherit indentation' test),
-/// nor the newline following it.
-///
-/// Therefore, we remove the trailing newline from the expected output.
-///
-/// The 'standalone parent' test looks very similar to this one, but its parent partial ends with a
-/// newline.
-String _patchStandaloneBlockExpected(String testName, String expected) {
-  if (testName == 'Standalone block') {
-    if (expected.endsWith('\n')) {
-      return expected.substring(0, expected.length - 1);
-    } else {
-      throw Exception('Expected output for standalone block test is missing a newline');
-    }
-  }
-  return expected;
 }
 
 bool shouldRun(String filename, List<String> unsupportedSpecs) {

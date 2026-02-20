@@ -25,11 +25,12 @@ class Tag {
 }
 
 class TagType {
-  const TagType(this.name);
+  const TagType(this.name, {this.opensContainer = false});
   final String name;
+  final bool opensContainer;
 
-  static const TagType openSection = TagType('openSection');
-  static const TagType openInverseSection = TagType('openInverseSection');
+  static const TagType openSection = TagType('openSection', opensContainer: true);
+  static const TagType openInverseSection = TagType('openInverseSection', opensContainer: true);
   static const TagType closeSection = TagType('closeSection');
   static const TagType variable = TagType('variable');
   static const TagType tripleMustache = TagType('tripleMustache');
@@ -37,8 +38,8 @@ class TagType {
   static const TagType partial = TagType('partial');
   static const TagType comment = TagType('comment');
   static const TagType changeDelimiter = TagType('changeDelimiter');
-  static const TagType openParent = TagType('openParent');
-  static const TagType openBlock = TagType('openBlock');
+  static const TagType openParent = TagType('openParent', opensContainer: true);
+  static const TagType openBlock = TagType('openBlock', opensContainer: true);
 }
 
 class Parser {
@@ -107,6 +108,9 @@ class Parser {
           _pendingWhitespace = null;
           _afterLineEnd = false;
           final Node? node = _createNodeFromTag(tag, partialIndent: indent);
+          if (node is ContainerNode) {
+            node.startClearRight = atLineStart;
+          }
           if (tag != null) {
             final bool consumesIndent =
                 (tag.type == TagType.openBlock ||
@@ -123,6 +127,7 @@ class Parser {
           _currentDelimiters = token.value;
 
         case TokenType.lineEnd:
+          _checkContainerTagClearRight();
           _flushPendingWhitespace();
           _afterLineEnd = true;
           _appendTextToken(_read()!);
@@ -143,6 +148,77 @@ class Parser {
     }
 
     return _stack.last.children;
+  }
+
+  /// Check if the most recent non-whitespace token is an opensContainer tag or a close tag that
+  /// corresponds to the node at the top of the stack, and mark it as clear right if so.
+  void _checkContainerTagClearRight() {
+    // Look back from the current offset for a non-whitespace token.
+    Token? lastToken;
+    int? lastOffset;
+    for (int i = _offset - 1; i >= 0; i--) {
+      lastToken = _tokens[i];
+      if(lastToken.type != TokenType.whitespace) {
+        lastOffset = i;
+        break;
+      }
+    }
+
+    // If there is no last token or it isn't a close delimiter, then
+    // there is no container node to check.
+    if (lastToken == null) {
+      return;
+    }
+
+    if (lastToken.type != TokenType.closeDelimiter) {
+      return;
+    }
+
+    // One token before the close delimiter is the name of the tag
+    // (or a variable name, in the case of a variable tag).
+    final int nameTokenOffset = lastOffset! - 1;
+    final Token nameToken = _tokens[nameTokenOffset];
+    if(nameToken.type != TokenType.identifier) {
+      return;
+    }
+
+    // One token before the name token is the sigil, which
+    // identifies the tag type.
+    final int sigilTokenOffset = nameTokenOffset - 1;
+    final Token sigilToken = _tokens[sigilTokenOffset];
+    if (sigilToken.type != TokenType.sigil) {
+      return;
+    }
+
+    final String sigil = sigilToken.value;
+    final TagType? tagType = _tagTypeMap[sigil];
+    if (tagType == null) {
+      return;
+    }
+
+    // If the tag opens a container, then the container is on top of the
+    // stack and start clear right.
+    if (tagType.opensContainer) {
+      final Node topOfStack = _stack.last;
+      if(topOfStack is ContainerNode) {
+        topOfStack.startClearRight = true;
+      }
+    }
+    else {
+      // If the tag closes a container, then the container is the
+      // last container child of the top of the stack.
+      final Node topOfStack = _stack.last;
+      if(topOfStack is ContainerNode) {
+        final List<Node> children = topOfStack.children;
+        for(int i = children.length - 1; i >= 0; i--) {
+          final Node child = children[i];
+          if(child is ContainerNode) {
+            child.endClearRight = true;
+            break;
+          }
+        }
+      }
+    }
   }
 
   // Returns null on EOF.
@@ -280,7 +356,6 @@ class Parser {
     while (_peek() != null) {
       _readIf(TokenType.lineEnd, eofOk: true);
 
-
       final Token? precedingWhitespace = _readIf(
         TokenType.whitespace,
         eofOk: true,
@@ -327,7 +402,44 @@ class Parser {
         // This is a tag on a "standalone line", so do not create text nodes
         // for whitespace, or the following newline.
         for(final tag in tags) {
+          // Record standalone status of the tag.
+          final Node? tagNode;
+          if(tag.type.opensContainer) {
+            tagNode = tagNodes[tag];
+          }
+          else {
+            tagNode = _getContainerNodeForCloseTag(tag);
+          }
+
+          if(tagNode is ContainerNode) {
+            // This is a standalone tag, so it is clear on both sides.
+            if(tag.type.opensContainer) {
+              tagNode.startClearLeft = true;
+              tagNode.startClearRight = true;
+            }
+            else {
+              tagNode.endClearLeft = true;
+              tagNode.endClearRight = true;
+            }
+          }
+
           _appendTag(tag, tagNodes[tag]);
+        }
+
+        // Standalone block tags are a special case.
+        // {{$block}}{{/block}} is standalone by the strict definition, but the actual behavior
+        // is more like {{#block}}...{{/block}}, i.e., a section with content. {{#block}}...{{/block}}
+        // should retain its trailing newline, so {{$block}}{{/block}} (or the same with standalone-eligible
+        // tags inside) should also retain its trailing newline.
+        if (tags.length >= 2) {
+          final Tag firstTag = tags.first;
+          final Tag lastTag = tags.last;
+          if(firstTag.type == TagType.openBlock && lastTag.type == TagType.closeSection && firstTag.name == lastTag.name) {
+            final Token? lineEnd = _readIf(TokenType.lineEnd, eofOk: true);
+            if(lineEnd != null) {
+              _appendTextToken(lineEnd);
+            }
+          }
         }
         // Now continue to loop and parse the next line.
       } else {
@@ -342,6 +454,26 @@ class Parser {
           }
         }
         for(final tag in tags) {
+          // Record standalone status of the tag.
+          final Node? tagNode;
+          if(tag.type.opensContainer) {
+            tagNode = tagNodes[tag];
+          }
+          else {
+            tagNode = _getContainerNodeForCloseTag(tag);
+          }
+
+          if(tagNode is ContainerNode) {
+            // We're parsing the beginning of a line, so the tag is
+            // clear left.
+            if(tag.type.opensContainer) {
+              tagNode.startClearLeft = true;
+            }
+            else {
+              tagNode.endClearLeft = true;
+            }
+          }
+
           _appendTag(tag, tagNodes[tag]);
         }
         if (followingWhitespace != null) {
@@ -351,6 +483,21 @@ class Parser {
         break;
       }
     }
+  }
+
+  /// Returns the container node for [tag], if [tag] is a close tag and
+  /// its name matches the name of the container node at the top of the stack.
+  ContainerNode? _getContainerNodeForCloseTag(Tag tag) {
+    if(tag.type != TagType.closeSection) {
+      return null;
+    }
+    final Node? topOfStack = _stack.last;
+    if(topOfStack is ContainerNode) {
+      if(topOfStack.name == tag.name) {
+        return topOfStack;
+      }
+    }
+    return null;
   }
 
   final RegExp _validIdentifier = RegExp(r'^[0-9a-zA-Z\_\-\.]+$');

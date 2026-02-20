@@ -60,6 +60,28 @@ abstract class ContainerNode extends Node {
   String get name;
   List<Node> get children;
 
+  bool startClearLeft = false;
+  bool startClearRight = false;
+  bool endClearLeft = false;
+  bool endClearRight = false;
+
+  /// Is the opening tag of this container standalone?
+  ///
+  /// A standalone tag is one where the tag is clear on both sides, i.e.
+  /// surrounded by nothing but whitespace on its line.
+  bool get isStartStandalone => startClearLeft && startClearRight;
+  /// Is the closing tag of this container standalone?
+  ///
+  /// A standalone tag is one where the tag is clear on both sides, i.e.
+  /// surrounded by nothing but whitespace on its line.
+  bool get isEndStandalone => endClearLeft && endClearRight;
+  /// Is the container as a whole standalone?
+  ///
+  /// A standalone container is one where the container is clear on both sides, i.e.
+  /// there is nothing but whitespace to the left of the start tag and to the right
+  /// of the end tag on their respective lines.
+  bool get isContainerStandalone => startClearLeft && endClearRight;
+
   @override
   void visitChildren(Visitor visitor) {
     for (final Node node in children) {
