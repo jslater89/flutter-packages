@@ -54,6 +54,7 @@ class Parser {
        _lenient = lenient,
        _scanner = Scanner(source, templateName, delimiters);
 
+  static final RegExp _lineEndRegex = RegExp(r'\r?\n');
   final String _source;
   final bool _lenient;
   final String? _templateName;
@@ -72,7 +73,7 @@ class Parser {
     _tokens = _scanner.scan();
     _currentDelimiters = _delimiters;
     _stack.clear();
-    _stack.add(SectionNode('root', 0, 0, _delimiters));
+    _stack.add(SectionNode('root', 0, 0, null, _delimiters));
 
     // Handle a standalone tag on first line, including special case where the
     // first line is empty.
@@ -80,7 +81,13 @@ class Parser {
     if (lineEnd != null) {
       _appendTextToken(lineEnd);
     }
-    _parseLine();
+    final bool lineStartsWithTag = _parseLine();
+    if (lineStartsWithTag) {
+      // There will be no pending whitespace at this point, because
+      // _parseLine handles all tokens up to the close delimiter of
+      // the first tag.
+      _afterLineEnd = false;
+    }
 
     for (Token? token = _peek(); token != null; token = _peek()) {
       switch (token.type) {
@@ -109,7 +116,7 @@ class Parser {
           _afterLineEnd = false;
           final Node? node = _createNodeFromTag(tag, partialIndent: indent);
           if (node is ContainerNode) {
-            node.startClearRight = atLineStart;
+            node.startClearLeft = atLineStart;
           }
           if (tag != null) {
             final bool consumesIndent =
@@ -138,6 +145,12 @@ class Parser {
       }
     }
 
+    // If the template doesn't end with a newline, check:
+    // 1. if the last token is a close delimeter
+    // 2. if that close delimiter closes a container tag
+    // 3. if that closing tag clears right
+    _checkContainerTagClearRight();
+
     if (_stack.length != 1) {
       throw TemplateException(
         "Unclosed tag: '${_stack.last.name}'.",
@@ -147,7 +160,257 @@ class Parser {
       );
     }
 
+    _standalonePass(_stack.last);
+
     return _stack.last.children;
+  }
+
+  /// The first pass over the AST handles only those tags that are standalone by the strict, original definition:
+  /// A single tag on a line with no whitespace. This second pass handles the more complex cases introduced
+  /// by the inheritance specification, where complete _nodes_ (i.e., {{<parent}}{{!content}}{{/parent}}) can
+  /// behave as standalone as well as just their tags.
+  ///
+  /// Definitions used in this comment:
+  ///
+  /// -'clear' or 'clears' below means 'has nothing but whitespace until a line boundary on the given side',
+  /// with the noun and verb forms used interchangeably:
+  ///   - `  {{<test}}xx\n` clears left.
+  ///   - `xx{{/test}}  \n` is clear right.
+  ///   - A tag pair clears if its opening tag has left clearance and its closing tag has right clearance.
+  ///   - A tag pair has inner clearance if its opening tag clears right and its closing tag clears left.
+  /// - 'whitespace' refers to specifically non-line-ending whitespace that occurs between a line break and
+  ///   the open delimiter of a tag, or between the close delimiter of a tag and a line break.
+  ///
+  /// When a node behaves as standalone, we look forward and back among its siblings to see if there is
+  /// surrounding whitespace (i.e., if the preceding text node ends with whitespace or the next text node
+  /// begins with whitespace). If so, we remove any whitespace from the preceding text node up until a
+  /// newline (which we leave in the preceding node), and remove any whitespace from the next text node up
+  /// to and including a newline.
+  ///
+  /// 1. A pair of parent tags and their entire content should be treated as standalone if the parent
+  /// tag pair clears.
+  ///
+  /// 2. An argument block (i.e., `{{$block}}...{{/block}}` within a pair of `{{<parent}}` tags)
+  /// is standalone if it has inner clearance. Note that the block tags may not
+  /// be strictly standalone: e.g. `{{<parent}}{{$block}}\n{{!content}}\n{{/block}}{{/parent}}`).
+  /// Neither block tag is standalone, but the pair has inner clearance, so we remove trailing whitespace
+  /// from after each tag, and remove a trailing newline from after the opening tag. Note that the trailing
+  /// newline occurs _inside_ the block, so we must look at the first text node within the block's content.\
+  /// \
+  /// Additionally, and unrelatedly, if an argument block's opening tag has inner clearance, the indentation
+  /// of the first line of the block's content becomes the block node's intrinsic indentation.
+  ///
+  /// 3. For a parameter block (i.e. `{{$block}}...{{/block}}` in a template without surrounding parent tags),
+  /// trailing whitespace and newlines are removed based on whether the closing tag is strictly standalone.
+  ///
+  /// 4. Both argument and parameter blocks always consume leading whitespace. This is a no-op in most cases,
+  /// but handles the case where the block tag is not standalone and is indented, with only whitespace ahead
+  /// of it: `    {{$block}}content{{/block}}`. That preceding whitespace is stored in the block node's
+  /// `indent` field during the first parsing pass, and will be applied to all rendered content during the
+  /// render step, so it must be removed from the preceding text node here.
+  ///
+  /// Whenever a block node has a nonempty value in its `indent` field, that block has **intrinsic
+  /// indentation**. Intrinsic indentation comes either from the indent before the open block tag for
+  /// non-standalone but non-inline blocks, or from the indentation of the first line of the block's content,
+  /// when either the block is an argument and its start tag clears right, or the block is a parameter,
+  /// the block tag pair is standalone, and the opening tag is standalone.
+  ///
+  /// When a block has intrinsic indentation, that indentation is removed from all its lines, such that
+  /// the first line of the block is unindented in the text nodes contained within. At render time, the
+  /// intrinsic indentation of the block in the outermost parent template is added to the start of each
+  /// line in the resolved block content.
+  ///
+  /// These rules come from a discussion in the mustache spec repository:
+  /// https://github.com/mustache/spec/discussions/203
+  ///
+  /// The behavior of this implementation should mirror the behavior of [Wontache](https://gitlab.com/jgonggrijp/wontache),
+  /// whose author is a mustache maintainer and the author of the inheritance optional spec.
+  void _standalonePass(ContainerNode container) {
+    for(var i = 0; i < container.children.length; i++) {
+      final Node child = container.children[i];
+      if (child is ContainerNode) {
+        TextNode? precedingText;
+        TextNode? followingText;
+        if (i > 0) {
+          final Node precedingNode = container.children[i - 1];
+          if (precedingNode is TextNode) {
+            precedingText = precedingNode;
+          }
+        }
+        if (i < container.children.length - 1) {
+          final Node followingNode = container.children[i + 1];
+          if (followingNode is TextNode) {
+            followingText = followingNode;
+          }
+        }
+
+        _checkAndUpdateSurroundingWhitespace(child, precedingText, followingText);
+        _checkAndUpdateIntrinsicIndentation(child);
+        _standalonePass(child);
+      }
+    }
+  }
+
+  /// Check and update the surrounding whitespace of a parent or block node. These behave differently
+  /// from sections in that the standalone rules are applied to
+  void _checkAndUpdateSurroundingWhitespace(ContainerNode container, TextNode? precedingTextNode, TextNode? followingTextNode) {
+    var shouldConsumeLeadingWhitespace = false;
+    var shouldConsumeTrailingWhitespace = false;
+
+    if (container is ParentNode) {
+      shouldConsumeLeadingWhitespace = container.isContainerStandalone;
+      shouldConsumeTrailingWhitespace = container.isContainerStandalone;
+    } else if (container is BlockNode) {
+      // Blocks behave slightly differently from partials/sections, the upshot of which is that
+      // we always want to consume whitespace on the line before the block's opening tag.
+      // Three cases:
+      // 1. The opening tag is fully standalone. There is no line-initial whitespace to consume;
+      //    it was already handled during the first pass.
+      // 2. The opening tag is not standalone and is indented, with only whitespace ahead of it.
+      //    We consume that whitespace, because it already became the block's indentation during
+      //    the first parse pass, and we don't want to double it when rendering the block.
+      // 3. The opening tag is not standalone and occurs inline with other running text. There is
+      //    no leading whitespace to consume (textBeforeContainer.trim() is nonempty).
+      shouldConsumeLeadingWhitespace = true;
+
+      if (container.isArgument) {
+        shouldConsumeTrailingWhitespace = container.endClearLeft;
+      }
+    }
+
+    if (shouldConsumeLeadingWhitespace) {
+      if(precedingTextNode != null) {
+        // Consume all trailing whitespace following the final newline (i.e. before this tag)
+        // from the prior text node.
+
+        // \r\n safety: we always keep the \r by substringing past the index of \n.
+        final int lastNewline = precedingTextNode.text.lastIndexOf('\n');
+        if (lastNewline != -1) {
+          final String textBeforeContainer = precedingTextNode.text.substring(lastNewline + 1);
+          if (textBeforeContainer.trim().isEmpty) {
+            precedingTextNode.text = precedingTextNode.text.substring(0, lastNewline + 1);
+          }
+        }
+      }
+    }
+
+    if (shouldConsumeTrailingWhitespace) {
+      if(followingTextNode != null) {
+        // Consume all leading whitespace before the first newline (i.e. after this tag)
+        // from the following text node, including that newline itself.
+
+        // \r\n safety: we keep neither the \r nor the \n if we substring past \n.
+        final int firstNewline = followingTextNode.text.indexOf('\n');
+        if (firstNewline != -1) {
+          final String textAfterContainer = followingTextNode.text.substring(0, firstNewline);
+          if (textAfterContainer.trim().isEmpty) {
+            if (firstNewline + 1 >= followingTextNode.text.length) {
+              // If the text after the container is only a newline or is empty, then set the text node to empty.
+              followingTextNode.text = '';
+            } else {
+              // Otherwise, consume the leading whitespace and newline.
+              followingTextNode.text = followingTextNode.text.substring(firstNewline + 1);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Detect the intrinsic indentation of a block node, which is the indentation of the first non-whitespace line
+  /// in the block. If the block has intrinsic indentation, then set the block's indent to that indentation and
+  /// remove that indentation from all of the block's lines. (Intrinsic indentation is added to the resolved
+  /// content of a block during rendering.)
+  void _checkAndUpdateIntrinsicIndentation(ContainerNode container) {
+    if (container is! BlockNode) {
+      return;
+    }
+
+    final BlockNode block = container;
+
+    var intrinsicIndentationFromFirstLine = false;
+    if (block.isArgument) {
+      intrinsicIndentationFromFirstLine = block.startClearRight;
+    } else {
+      intrinsicIndentationFromFirstLine = block.isContainerStandalone && block.isStartStandalone;
+    }
+
+    if (intrinsicIndentationFromFirstLine) {
+      // Find the first text node in the container.
+      TextNode? firstText;
+      for (final Node child in block.children) {
+        if (child is TextNode) {
+          firstText = child;
+          break;
+        }
+      }
+
+      if (firstText != null) {
+        // An argument block's start tag is standalone if it clears right, so if the template
+        // content begins with nothing but whitespace up until a newline, remove it.
+
+        // \r\n safety: we look for all non-\n whitespace characters including \r in our prefix, and
+        // substringing on the index of \n discards the \r.
+        if (block.isArgument && block.startClearRight && firstText.text.startsWith(RegExp(r'^[\r\s\t\v ]*\n'))) {
+          final int newlineIndex = firstText.text.indexOf('\n');
+          if (newlineIndex != -1) {
+            firstText.text = firstText.text.substring(newlineIndex + 1);
+          }
+        }
+
+        // Find the first line that contains a non-whitespace character in the first text node.
+
+        // \r\n safety: a potential trailing \r per line does not impact the intrinsic indentation.
+        final List<String> lines = firstText.text.split('\n');
+        for(final line in lines) {
+          if (line.trim().isNotEmpty) {
+            // The leading indentation of that line is the intrinsic indentation.
+            block.indent = line.substring(0, line.indexOf(line.trim()));
+            break;
+          }
+        }
+
+        // If this container is standalone, remove the leading newline from the first text node.
+        if ((block.isContainerStandalone || block.isInnerStandalone) && firstText.text.startsWith(_lineEndRegex)) {
+          firstText.text = firstText.text.replaceFirst(_lineEndRegex, '');
+        }
+      }
+    }
+
+    // For nested blocks, intrinsic indentation is relative to the parent block's indendation,
+    // so subtract the indentation of any ancestor blocks from this block's intrinsic indentation.
+    String intrinsicIndentation = block.indent;
+    Node? parent = block.parent;
+    while (parent != null) {
+      if (parent is BlockNode) {
+        // Remove parent indentation from the end of the intrinsic indentation, to hopefully
+        // catch mixed tab/space scenarios.
+        intrinsicIndentation = intrinsicIndentation.substring(0, intrinsicIndentation.length - parent.indent.length);
+      }
+      parent = parent.parent;
+    }
+    block.indent = intrinsicIndentation;
+
+    // If the container has intrinsic indentation, then remove that indentation
+    // from all of the container's lines.
+
+    // \r\n safety: splitting on \n preserves the \r at the end of each line, so
+    // joining by \n restores any CRLF endings.
+    if (block.indent.isNotEmpty) {
+      for(final Node child in block.children) {
+        if (child is TextNode) {
+          final List<String> lines = child.text.split('\n');
+          for(var i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.startsWith(block.indent)) {
+              line = line.substring(block.indent.length);
+            }
+            lines[i] = line;
+          }
+          child.text = lines.join('\n');
+        }
+      }
+    }
   }
 
   /// Check if the most recent non-whitespace token is an opensContainer tag or a close tag that
@@ -276,12 +539,13 @@ class Parser {
         TokenType.whitespace,
       ].contains(token.type),
     );
+    final Node parent = _stack.last;
     final List<Node> children = _stack.last.children;
     if (children.isEmpty || children.last is! TextNode) {
-      children.add(TextNode(token.value, token.start, token.end));
+      children.add(TextNode(token.value, token.start, token.end, parent));
     } else {
       final last = children.removeLast() as TextNode;
-      final node = TextNode(last.text + token.value, last.start, token.end);
+      final node = TextNode(last.text + token.value, last.start, token.end, parent);
       children.add(node);
     }
   }
@@ -344,12 +608,16 @@ class Parser {
   // lineEnd whitespace openDelimiter any* closeDelimiter whitespace lineEnd
   //
   // Where lineEnd can also mean start/end of the source.
-  void _parseLine() {
+  //
+  // Returns true if any tags were parsed.
+  bool _parseLine() {
     // If first token is a newline append it.
     final Token? t = _peek();
     if (t != null && t.type == TokenType.lineEnd) {
       _appendTextToken(t);
     }
+
+    var parsedTag = false;
 
     // Continue parsing standalone lines until we find one that isn't a
     // standalone line.
@@ -367,16 +635,16 @@ class Parser {
       final List<Tag> tags = [];
       final Map<Tag, Node> tagNodes = {};
 
-      Tag? tag = _readTag();
-      while(tag != null) {
+      final Tag? tag = _readTag();
+      if(tag != null) {
+        parsedTag = true;
         tags.add(tag);
         final Node? node = _createNodeFromTag(tag, partialIndent: indent);
-
         if(node != null) {
           tagNodes[tag] = node;
         }
-        tag = _readTag();
       }
+
       final Token? followingWhitespace = _readIf(
         TokenType.whitespace,
         eofOk: true,
@@ -394,88 +662,70 @@ class Parser {
       ];
 
       final bool isStandaloneLine =
-        tags.isNotEmpty &&
-        tags.every((Tag tag) => standaloneTypes.contains(tag.type)) &&
+        tag != null &&
+        standaloneTypes.contains(tag.type) &&
         (_peek() == null || _peek()!.type == TokenType.lineEnd);
 
       if (isStandaloneLine) {
         // This is a tag on a "standalone line", so do not create text nodes
         // for whitespace, or the following newline.
-        for(final tag in tags) {
-          // Record standalone status of the tag.
-          final Node? tagNode;
+        // Record standalone status of the tag.
+        final Node? tagNode;
+        if(tag.type.opensContainer) {
+          tagNode = tagNodes[tag];
+        }
+        else {
+          tagNode = _getContainerNodeForCloseTag(tag);
+        }
+
+        if(tagNode is ContainerNode) {
+          // This is a standalone tag, so it is clear on both sides.
           if(tag.type.opensContainer) {
-            tagNode = tagNodes[tag];
+            tagNode.startClearLeft = true;
+            tagNode.startClearRight = true;
           }
           else {
-            tagNode = _getContainerNodeForCloseTag(tag);
-          }
-
-          if(tagNode is ContainerNode) {
-            // This is a standalone tag, so it is clear on both sides.
-            if(tag.type.opensContainer) {
-              tagNode.startClearLeft = true;
-              tagNode.startClearRight = true;
-            }
-            else {
-              tagNode.endClearLeft = true;
-              tagNode.endClearRight = true;
-            }
-          }
-
-          _appendTag(tag, tagNodes[tag]);
-        }
-
-        // Standalone block tags are a special case.
-        // {{$block}}{{/block}} is standalone by the strict definition, but the actual behavior
-        // is more like {{#block}}...{{/block}}, i.e., a section with content. {{#block}}...{{/block}}
-        // should retain its trailing newline, so {{$block}}{{/block}} (or the same with standalone-eligible
-        // tags inside) should also retain its trailing newline.
-        if (tags.length >= 2) {
-          final Tag firstTag = tags.first;
-          final Tag lastTag = tags.last;
-          if(firstTag.type == TagType.openBlock && lastTag.type == TagType.closeSection && firstTag.name == lastTag.name) {
-            final Token? lineEnd = _readIf(TokenType.lineEnd, eofOk: true);
-            if(lineEnd != null) {
-              _appendTextToken(lineEnd);
-            }
+            tagNode.endClearLeft = true;
+            tagNode.endClearRight = true;
           }
         }
+
+        _appendTag(tag, tagNodes[tag]);
+
         // Now continue to loop and parse the next line.
       } else {
         // This is not a standalone line so add the whitespace to the AST.
         if (precedingWhitespace != null) {
-          // openBlock is a special case: even though it occurs inline here rather than standalone,
-          // we don't want to include the preceding whitespace separately in the AST, because openBlock's
-          // indent already sets the preceding whitespace.
-          final bool includePrecedingWhitespace = tags.isEmpty || tags.last.type != TagType.openBlock;
-          if (includePrecedingWhitespace) {
-            _appendTextToken(precedingWhitespace);
-          }
+          _appendTextToken(precedingWhitespace);
         }
-        for(final tag in tags) {
-          // Record standalone status of the tag.
-          final Node? tagNode;
+
+        // Record standalone status of the tag.
+        Node? tagNode;
+        if(tag != null) {
+          parsedTag = true;
           if(tag.type.opensContainer) {
             tagNode = tagNodes[tag];
           }
           else {
             tagNode = _getContainerNodeForCloseTag(tag);
           }
+        }
 
-          if(tagNode is ContainerNode) {
-            // We're parsing the beginning of a line, so the tag is
-            // clear left.
-            if(tag.type.opensContainer) {
-              tagNode.startClearLeft = true;
-            }
-            else {
-              tagNode.endClearLeft = true;
-            }
+        if(tag != null && tagNode != null && tagNode is ContainerNode) {
+          // We're parsing the beginning of a line, so the tag is
+          // clear left.
+          if(tag.type.opensContainer) {
+            tagNode.startClearLeft = true;
           }
+          else {
+            tagNode.endClearLeft = true;
+          }
+        }
 
+        if(tag != null) {
           _appendTag(tag, tagNodes[tag]);
         }
+
         if (followingWhitespace != null) {
           _appendTextToken(followingWhitespace);
         }
@@ -483,6 +733,8 @@ class Parser {
         break;
       }
     }
+
+    return parsedTag;
   }
 
   /// Returns the container node for [tag], if [tag] is a close tag and
@@ -491,7 +743,7 @@ class Parser {
     if(tag.type != TagType.closeSection) {
       return null;
     }
-    final Node? topOfStack = _stack.last;
+    final Node topOfStack = _stack.last;
     if(topOfStack is ContainerNode) {
       if(topOfStack.name == tag.name) {
         return topOfStack;
@@ -609,6 +861,7 @@ class Parser {
           tag.name,
           tag.start,
           tag.end,
+          _stack.last,
           _currentDelimiters,
           inverse: inverse,
         );
@@ -617,16 +870,16 @@ class Parser {
       case TagType.unescapedVariable:
       case TagType.tripleMustache:
         final escape = tag.type == TagType.variable;
-        node = VariableNode(tag.name, tag.start, tag.end, escape: escape);
+        node = VariableNode(tag.name, tag.start, tag.end, _stack.last, escape: escape);
 
       case TagType.partial:
-        node = PartialNode(tag.name, tag.start, tag.end, partialIndent);
+        node = PartialNode(tag.name, tag.start, tag.end, partialIndent, _stack.last);
 
       case TagType.openParent:
-        node = ParentNode(tag.name, tag.start, tag.end, partialIndent);
+        node = ParentNode(tag.name, tag.start, tag.end, partialIndent, _stack.last);
 
       case TagType.openBlock:
-        node = BlockNode(tag.name, tag.start, tag.end, indent: partialIndent);
+        node = BlockNode(tag.name, tag.start, tag.end, _stack.last, indent: partialIndent);
 
       case TagType.closeSection:
       case TagType.comment:

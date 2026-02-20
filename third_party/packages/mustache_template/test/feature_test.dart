@@ -764,6 +764,49 @@ void main() {
     });
   });
 
+  group('Inheritance', () {
+
+    test('Nested block reindentation with outermost indentation', () {
+      const templateSource = r'''
+{{<parent}}{{$nested}}
+  three
+{{/nested}}{{/parent}}
+''';
+      const parentSource = r'''
+{{<grandparent}}{{$block}}
+  one
+  {{$nested}}
+    two
+  {{/nested}}
+{{/block}}{{/grandparent}}
+''';
+      const grandparentSource = r'''
+{{$block}}
+  default
+{{/block}}
+''';
+      final grandparent = Template(grandparentSource);
+      final parent = Template(parentSource, partialResolver: (name) {
+        if (name == 'grandparent') {
+          return grandparent;
+        }
+        return null;
+      });
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'parent') {
+          return parent;
+        }
+        else if (name == 'grandparent') {
+          return grandparent;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{});
+      expect(output, equals('  one\n    three\n'));
+     });
+
+  });
+
   group('Other', () {
     test('Standalone line', () {
       final String val = parse(

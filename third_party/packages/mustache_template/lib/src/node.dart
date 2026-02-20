@@ -2,13 +2,14 @@
 // ignore_for_file: public_member_api_docs
 
 abstract class Node {
-  Node(this.start, this.end);
+  Node(this.start, this.end, this.parent);
 
   // The offset of the start of the token in the file. Unless this is a section
   // or inverse section, then this stores the start of the content of the
   // section.
   final int start;
   final int end;
+  final Node? parent;
 
   void accept(Visitor visitor);
   void visitChildren(Visitor visitor) {}
@@ -24,9 +25,9 @@ abstract class Visitor {
 }
 
 class TextNode extends Node {
-  TextNode(this.text, int start, int end) : super(start, end);
+  TextNode(this.text, int start, int end, Node? parent) : super(start, end, parent);
 
-  final String text;
+  String text;
 
   @override
   String toString() => '(TextNode "$_debugText" $start $end)';
@@ -41,8 +42,8 @@ class TextNode extends Node {
 }
 
 class VariableNode extends Node {
-  VariableNode(this.name, int start, int end, {this.escape = true})
-    : super(start, end);
+  VariableNode(this.name, int start, int end, Node? parent, {this.escape = true})
+    : super(start, end, parent);
 
   final String name;
   final bool escape;
@@ -55,7 +56,7 @@ class VariableNode extends Node {
 }
 
 abstract class ContainerNode extends Node {
-  ContainerNode(super.start, super.end);
+  ContainerNode(super.start, super.end, super.parent);
 
   String get name;
   List<Node> get children;
@@ -82,6 +83,15 @@ abstract class ContainerNode extends Node {
   /// of the end tag on their respective lines.
   bool get isContainerStandalone => startClearLeft && endClearRight;
 
+  /// Is the container inner standalone?
+  ///
+  /// An inner standalone container considers only the inside clearance of the tag pair
+  /// (right clearance for the start tag, left clearance for the end tag). Since argument
+  /// blocks inside parent tags live in 'comment space' (their exterior indentation doesn't
+  /// matter; they're always substituted in somewhere else), only the inside clearance
+  /// matters to determine how we should treat the following lines.
+  bool get isInnerStandalone => startClearRight && endClearLeft;
+
   @override
   void visitChildren(Visitor visitor) {
     for (final Node node in children) {
@@ -95,10 +105,11 @@ class SectionNode extends ContainerNode {
     this.name,
     int start,
     int end,
+    Node? parent,
     this.delimiters, {
     this.inverse = false,
   }) : contentStart = end,
-       super(start, end);
+       super(start, end, parent);
 
   @override
   final String name;
@@ -117,7 +128,7 @@ class SectionNode extends ContainerNode {
 }
 
 class ParentNode extends ContainerNode {
-  ParentNode(this.name, int start, int end, this.indent) : super(start, end);
+  ParentNode(this.name, int start, int end, this.indent, Node? parent) : super(start, end, parent);
 
   @override
   final String name;
@@ -137,18 +148,38 @@ class ParentNode extends ContainerNode {
 }
 
 class BlockNode extends ContainerNode {
-  BlockNode(this.name, int start, int end, {this.indent = ''})
-    : super(start, end);
+  BlockNode(this.name, int start, int end, Node? parent, {this.indent = ''})
+    : super(start, end, parent) {
+      Node? parent = this.parent;
+      while (parent != null) {
+        if (parent is ParentNode) {
+          isArgument = true;
+          break;
+        }
+        parent = parent.parent;
+      }
+    }
 
   @override
   final String name;
 
   /// When the block tag is standalone, preceding whitespace is stored so that
   /// override content can be reindented to match the expansion site.
-  final String indent;
+  ///
+  /// May be set in either the first pass of the parser, or in the second
+  /// standalone/whitespace pass.
+  String indent;
 
   @override
   final List<Node> children = <Node>[];
+
+  /// Whether this block node is an argument block within a {{<parent}} tag,
+  /// to be rendered in place of a parameter block in the parent template.
+  bool isArgument = false;
+
+  /// Whether this block node is a parameter block within a template, to be
+  /// replaced by an argument block in a child template.
+  bool get isParameter => !isArgument;
 
   @override
   void accept(Visitor visitor) => visitor.visitBlock(this);
@@ -158,7 +189,7 @@ class BlockNode extends ContainerNode {
 }
 
 class PartialNode extends Node {
-  PartialNode(this.name, int start, int end, this.indent) : super(start, end);
+  PartialNode(this.name, int start, int end, this.indent, Node? parent) : super(start, end, parent);
 
   final String name;
 

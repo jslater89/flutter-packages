@@ -136,9 +136,9 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc', 0, 3),
-        VariableNode('foo', 3, 10),
-        TextNode('def', 10, 13),
+        TextNode('abc', 0, 3, null),
+        VariableNode('foo', 3, 10, null),
+        TextNode('def', 10, 13, null),
       ]);
     });
 
@@ -147,9 +147,9 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc', 0, 3),
-        VariableNode('foo', 3, 12),
-        TextNode('def', 12, 15),
+        TextNode('abc', 0, 3, null),
+        VariableNode('foo', 3, 12, null),
+        TextNode('def', 12, 15, null),
       ]);
     });
 
@@ -158,12 +158,12 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc', 0, 3),
-        SectionNode('foo', 3, 11, '{{ }}'),
-        TextNode('ghi', 22, 25),
+        TextNode('abc', 0, 3, null),
+        SectionNode('foo', 3, 11, null, '{{ }}'),
+        TextNode('ghi', 22, 25, null),
       ]);
       expectNodes((nodes[1] as SectionNode).children, <Node>[
-        TextNode('def', 11, 14),
+        TextNode('def', 11, 14, null),
       ]);
     });
 
@@ -172,12 +172,12 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc\n', 0, 4),
-        SectionNode('foo', 4, 12, '{{ }}'),
-        TextNode('ghi', 26, 29),
+        TextNode('abc\n', 0, 4, null),
+        SectionNode('foo', 4, 12, null, '{{ }}'),
+        TextNode('ghi', 26, 29, null),
       ]);
       expectNodes((nodes[1] as SectionNode).children, <Node>[
-        TextNode('def\n', 13, 17),
+        TextNode('def\n', 13, 17, null),
       ]);
     });
 
@@ -187,13 +187,13 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc\n', 0, 4),
-        SectionNode('foo', 4, 12, '{{ }}'),
-        SectionNode('foo', 26, 34, '{{ }}'),
-        TextNode('ghi', 48, 51),
+        TextNode('abc\n', 0, 4, null),
+        SectionNode('foo', 4, 12, null, '{{ }}'),
+        SectionNode('foo', 26, 34, null, '{{ }}'),
+        TextNode('ghi', 48, 51, null),
       ]);
       expectNodes((nodes[1] as SectionNode).children, <Node>[
-        TextNode('def\n', 13, 17),
+        TextNode('def\n', 13, 17, null),
       ]);
     });
 
@@ -202,11 +202,11 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        SectionNode('foo', 2, 10, '{{ }}'),
-        TextNode('ghi', 26, 29),
+        SectionNode('foo', 2, 10, null, '{{ }}'),
+        TextNode('ghi', 26, 29, null),
       ]);
       expectNodes((nodes[0] as SectionNode).children, <Node>[
-        TextNode('def\n', 13, 17),
+        TextNode('def\n', 13, 17, null),
       ]);
     });
 
@@ -214,9 +214,9 @@ void main() {
       const source = '{{#foo}}def\n  {{/foo}}  ';
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
-      expectNodes(nodes, <Node>[SectionNode('foo', 0, 8, '{{ }}')]);
+      expectNodes(nodes, <Node>[SectionNode('foo', 0, 8, null, '{{ }}')]);
       expectNodes((nodes[0] as SectionNode).children, <Node>[
-        TextNode('def\n', 8, 12),
+        TextNode('def\n', 8, 12, null),
       ]);
     });
 
@@ -225,9 +225,9 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc\n\n', 0, 5),
-        VariableNode('foo', 5, 12),
-        TextNode('def', 12, 15),
+        TextNode('abc\n\n', 0, 5, null),
+        VariableNode('foo', 5, 12, null),
+        TextNode('def', 12, 15, null),
       ]);
     });
 
@@ -236,12 +236,12 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc\n\n', 0, 5),
-        SectionNode('foo', 5, 13, '{{ }}'),
-        TextNode('ghi', 27, 30),
+        TextNode('abc\n\n', 0, 5, null),
+        SectionNode('foo', 5, 13, null, '{{ }}'),
+        TextNode('ghi', 27, 30, null),
       ]);
       expectNodes((nodes[1] as SectionNode).children, <Node>[
-        TextNode('def\n', 14, 18),
+        TextNode('def\n', 14, 18, null),
       ]);
     });
 
@@ -249,7 +249,7 @@ void main() {
       const source = 'abc\n   ';
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
-      expectNodes(nodes, <Node>[TextNode('abc\n   ', 0, 7)]);
+      expectNodes(nodes, <Node>[TextNode('abc\n   ', 0, 7, null)]);
     });
 
     test('parse partial', () {
@@ -257,9 +257,9 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('abc\n   ', 0, 7),
-        PartialNode('foo', 7, 15, '   '),
-        TextNode('def', 15, 18),
+        TextNode('abc\n   ', 0, 7, null),
+        PartialNode('foo', 7, 15, '   ', null),
+        TextNode('def', 15, 18, null),
       ]);
     });
 
@@ -268,13 +268,13 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        TextNode('<', 11, 12),
-        SectionNode('lambda', 12, 21, '| |'),
-        TextNode('>', 31, 32),
+        TextNode('<', 11, 12, null),
+        SectionNode('lambda', 12, 21, null, '| |'),
+        TextNode('>', 31, 32, null),
       ]);
       expect((nodes[1] as SectionNode).delimiters, equals('| |'));
       expectNodes((nodes[1] as SectionNode).children, <Node>[
-        TextNode('-', 21, 22),
+        TextNode('-', 21, 22, null),
       ]);
     });
 
@@ -296,9 +296,9 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}', lenient: true);
       final List<Node> nodes = parser.parse();
       expectNodes(nodes, <Node>[
-        VariableNode('#foo', 0, 12, escape: false),
-        TextNode(' ', 12, 13),
-        VariableNode('/foo', 13, 25, escape: false),
+        VariableNode('#foo', 0, 12, null, escape: false),
+        TextNode(' ', 12, 13, null),
+        VariableNode('/foo', 13, 25, null, escape: false),
       ]);
     });
 
@@ -307,14 +307,124 @@ void main() {
       final parser = Parser(source, 'foo', '{{ }}');
       final List<Node> nodes = parser.parse();
       // End offset includes emoji sizes
-      expectNodes(nodes, <Node>[TextNode('Hello! 🖖👍🏽🏳️‍🌈\nEmoji', 0, 20)]);
+      expectNodes(nodes, <Node>[TextNode('Hello! 🖖👍🏽🏳️‍🌈\nEmoji', 0, 20, null)]);
     });
 
+    test('parent tag pair clearance', () {
+      const source = r'{{<parent}}{{$block}}default{{/block}}{{/parent}}';
+      final parser = Parser(source, 'foo', '{{ }}');
+      final List<Node> nodes = parser.parse();
+      expect(nodes[0], isA<ParentNode>());
+
+      final parent = nodes[0] as ParentNode;
+      expect(parent.startClearLeft, isTrue);
+      expect(parent.endClearRight, isTrue);
+      expect(parent.startClearRight, isFalse);
+      expect(parent.endClearLeft, isFalse);
+      expect(parent.isContainerStandalone, isTrue);
+    });
+
+    test('argument block detection', () {
+      const source = r'{{<parent}}{{$block}}default{{/block}}{{/parent}}';
+      final parser = Parser(source, 'foo', '{{ }}');
+      final List<Node> nodes = parser.parse();
+      expect(nodes[0], isA<ParentNode>());
+      final parent = nodes[0] as ParentNode;
+
+      expect(parent.children[0], isA<BlockNode>());
+      final block = parent.children[0] as BlockNode;
+      expect(block.isArgument, isTrue);
+    });
+
+    test('nested argument block detection', () {
+      const source = r'{{<parent}}{{#section}}{{$block}}positive content{{/block}}{{/section}}{{/parent}}';
+      final parser = Parser(source, 'foo', '{{ }}');
+      final List<Node> nodes = parser.parse();
+      expect(nodes[0], isA<ParentNode>());
+      final parent = nodes[0] as ParentNode;
+      expect(parent.children[0], isA<SectionNode>());
+      final section = parent.children[0] as SectionNode;
+      expect(section.children[0], isA<BlockNode>());
+      final block = section.children[0] as BlockNode;
+      expect(block.isArgument, isTrue);
+    });
+
+    test('parameter block detection', () {
+      const source = r'{{#section}}{{$block}}default{{/block}}{{/section}}';
+      final parser = Parser(source, 'foo', '{{ }}');
+      final List<Node> nodes = parser.parse();
+      expect(nodes[0], isA<SectionNode>());
+      final section = nodes[0] as SectionNode;
+      expect(section.children[0], isA<BlockNode>());
+      final block = section.children[0] as BlockNode;
+      expect(block.isParameter, isTrue);
+    });
+
+    test('inline block tag clearance with default', () {
+      const source = r'{{<parent}}{{$block}}default{{/block}}{{/parent}}';
+      final parser = Parser(source, 'foo', '{{ }}');
+      final List<Node> nodes = parser.parse();
+      expect(nodes[0], isA<ParentNode>());
+      final parent = nodes[0] as ParentNode;
+
+      expect(parent.children[0], isA<BlockNode>());
+      final block = parent.children[0] as BlockNode;
+      expect(block.startClearLeft, isFalse);
+      expect(block.startClearRight, isFalse);
+      expect(block.endClearLeft, isFalse);
+      expect(block.endClearRight, isFalse);
+      expect(block.isContainerStandalone, isFalse);
+      expect(block.isInnerStandalone, isFalse);
+      expect(block.isStartStandalone, isFalse);
+      expect(block.isEndStandalone, isFalse);
+     });
+
+     test('inline block tag with no default content', () {
+      const source = r'{{<parent}}{{$block}}{{/block}}{{/parent}}';
+      final parser = Parser(source, 'foo', '{{ }}');
+      final List<Node> nodes = parser.parse();
+      expect(nodes[0], isA<ParentNode>());
+      final parent = nodes[0] as ParentNode;
+
+      expect(parent.children[0], isA<BlockNode>());
+      final block = parent.children[0] as BlockNode;
+      expect(block.startClearLeft, isFalse);
+      expect(block.startClearRight, isFalse);
+      expect(block.endClearLeft, isFalse);
+      expect(block.endClearRight, isFalse);
+      expect(block.isContainerStandalone, isFalse);
+      expect(block.isInnerStandalone, isFalse);
+      expect(block.isStartStandalone, isFalse);
+      expect(block.isEndStandalone, isFalse);
+     });
+
+     test('multiline parent/block tag clearance with default', () {
+      const source = '{{<parent}}{{\$block}}\ndefault\n{{/block}}{{/parent}}';
+      final parser = Parser(source, 'foo', '{{ }}');
+      final List<Node> nodes = parser.parse();
+      expect(nodes[0], isA<ParentNode>());
+      final parent = nodes[0] as ParentNode;
+      expect(parent.startClearLeft, isTrue);
+      expect(parent.startClearRight, isFalse);
+      expect(parent.endClearLeft, isFalse);
+      expect(parent.endClearRight, isTrue);
+      expect(parent.isContainerStandalone, isTrue);
+
+      expect(parent.children[0], isA<BlockNode>());
+      final block = parent.children[0] as BlockNode;
+      expect(block.startClearLeft, isFalse);
+      expect(block.startClearRight, isTrue);
+      expect(block.endClearLeft, isTrue);
+      expect(block.endClearRight, isFalse);
+      expect(block.isContainerStandalone, isFalse);
+      expect(block.isInnerStandalone, isTrue);
+     });
+
     test('toString', () {
-      TextNode('foo', 1, 3).toString();
-      VariableNode('foo', 1, 3).toString();
-      PartialNode('foo', 1, 3, ' ').toString();
-      SectionNode('foo', 1, 3, '{{ }}').toString();
+      TextNode('foo', 1, 3, null).toString();
+      VariableNode('foo', 1, 3, null).toString();
+      PartialNode('foo', 1, 3, ' ', null).toString();
+      SectionNode('foo', 1, 3, null, '{{ }}').toString();
       Token(TokenType.closeDelimiter, 'foo', 1, 3).toString();
       TokenType.closeDelimiter.toString();
     });
