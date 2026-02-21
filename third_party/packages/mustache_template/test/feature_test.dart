@@ -906,6 +906,7 @@ three
     six{{/block}}
 {{/parent}}
   seven
+  eight
 ''';
 
       const parentSource = r'''
@@ -931,7 +932,7 @@ four
       });
       final String output = template.renderString(<String, Object>{
       });
-      expect(output, equals('one\n  two\n    three\n    four\n      five\n      six\n      seven\n'));
+      expect(output, equals('one\n  two\n    three\n    four\n      five\n      six\n      seven\n      eight\n'));
      });
   });
 

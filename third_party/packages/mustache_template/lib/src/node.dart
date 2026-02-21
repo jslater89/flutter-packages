@@ -42,10 +42,14 @@ class TextNode extends Node {
 }
 
 class VariableNode extends Node {
-  VariableNode(this.name, int start, int end, Node? parent, {this.escape = true})
+  VariableNode(this.name, int start, int end, Node? parent, {this.escape = true, this.intrinsicIndent = ''})
     : super(start, end, parent);
 
   final String name;
+
+  /// The intrinsic indentation of the variable node's parent, if any, to be removed from the resolved value
+  /// prior to rendering.
+  String intrinsicIndent;
   final bool escape;
 
   @override

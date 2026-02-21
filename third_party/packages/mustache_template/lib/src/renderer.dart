@@ -127,6 +127,7 @@ class Renderer extends Visitor {
       for(int i = nodes.length - 2; i >= 0; i--) {
         if (nodes[i + 1] is BlockNode) {
           lastNonBlockNode = i;
+        } else {
           break;
         }
       }
@@ -135,11 +136,20 @@ class Renderer extends Visitor {
       // indent on the following line if its last rune is a newline.
       // Since block nodes handle their own initial indentation, we
       // want to treat the last node that isn't a block node as lastNode.
+      Node? previousNode;
       for(final (index, node) in nodes.indexed) {
+        if (index > 0) {
+          previousNode = nodes[index - 1];
+        }
         if (index < lastNonBlockNode) {
           node.accept(this);
         } else {
           if (node is TextNode) {
+            // If the previous node is a standalone container node and the current node is a non-empty text node,
+            // write an indent: standalone containers write the trailing newline internally.
+            if (previousNode is ContainerNode && previousNode.isContainerStandalone && node.text.trim().isNotEmpty) {
+              write(indent);
+            }
             visitText(node, lastNode: true);
           } else {
             node.accept(this);
@@ -326,8 +336,7 @@ class Renderer extends Visitor {
         merged,
       );
 
-      // If the first node is a BlockNode, its renderer indents all its lines.
-      renderer.render(nodes, writeInitialIndent: nodes.firstOrNull is! BlockNode);
+      renderer.render(nodes, writeInitialIndent: _shouldWriteInitialIndent(nodes));
     } else if (lenient) {
       // do nothing
     } else {
@@ -347,7 +356,7 @@ class Renderer extends Visitor {
       this,
       node,
     );
-    blockRenderer.render(renderNodes, writeInitialIndent: renderNodes.firstOrNull is! BlockNode);
+    blockRenderer.render(renderNodes, writeInitialIndent: _shouldWriteInitialIndent(renderNodes));
   }
 
   // Walks up the stack looking for the variable.
@@ -371,6 +380,21 @@ class Renderer extends Visitor {
       object = _getNamedProperty(object, parts[i]);
     }
     return object;
+  }
+
+  /// Returns true if the initial indent should be written before the first node in the list.
+  /// This is true if the first node is not a BlockNode or VariableNode, both of which
+  /// render their own indentation.
+  bool _shouldWriteInitialIndent(List<Node> nodes) {
+    Node? firstMeaningfulNode;
+    for(final node in nodes) {
+      if (node is TextNode && node.text.isEmpty) {
+        continue;
+      }
+      firstMeaningfulNode = node;
+      break;
+    }
+    return firstMeaningfulNode != null && firstMeaningfulNode is! BlockNode && firstMeaningfulNode is! VariableNode;
   }
 
   // Returns the property of the given object by name. For a map,

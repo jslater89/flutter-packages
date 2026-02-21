@@ -419,6 +419,8 @@ class Parser {
             lines[i] = line;
           }
           child.text = lines.join('\n');
+        } else if (child is VariableNode) {
+          child.intrinsicIndent = originalIntrinsicIndentation;
         }
       }
     }
