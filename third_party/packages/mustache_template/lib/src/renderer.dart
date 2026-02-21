@@ -356,7 +356,7 @@ class Renderer extends Visitor {
       this,
       node,
     );
-    blockRenderer.render(renderNodes, writeInitialIndent: _shouldWriteInitialIndent(renderNodes));
+    blockRenderer.render(renderNodes, writeInitialIndent: _shouldWriteInitialIndent(renderNodes, container: node));
   }
 
   // Walks up the stack looking for the variable.
@@ -385,7 +385,7 @@ class Renderer extends Visitor {
   /// Returns true if the initial indent should be written before the first node in the list.
   /// This is true if the first node is not a BlockNode or VariableNode, both of which
   /// render their own indentation.
-  bool _shouldWriteInitialIndent(List<Node> nodes) {
+  bool _shouldWriteInitialIndent(List<Node> nodes, {ContainerNode? container}) {
     Node? firstMeaningfulNode;
     for(final node in nodes) {
       if (node is TextNode && node.text.isEmpty) {
@@ -394,7 +394,20 @@ class Renderer extends Visitor {
       firstMeaningfulNode = node;
       break;
     }
-    return firstMeaningfulNode != null && firstMeaningfulNode is! BlockNode && firstMeaningfulNode is! VariableNode;
+    final bool childNeedsIndent = firstMeaningfulNode != null && firstMeaningfulNode is! BlockNode && firstMeaningfulNode is! VariableNode;
+
+    final bool enclosingContainerStandalone;
+    if (container != null) {
+      if (container is BlockNode || container is ParentNode) {
+        enclosingContainerStandalone = container.isContainerStandalone;
+      } else {
+        enclosingContainerStandalone = false;
+      }
+    } else {
+      enclosingContainerStandalone = false;
+    }
+
+    return childNeedsIndent && (container == null || enclosingContainerStandalone);
   }
 
   // Returns the property of the given object by name. For a map,

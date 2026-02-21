@@ -887,6 +887,29 @@ eight
       expect(output, equals('one\n  two\n    three\n    four\n    five\n'));
     });
 
+    test('Multiline block reindentation with wrapping', () {
+      const templateSource = r'''
+one
+  two
+    {{<parent}}
+      {{$block}}three{{/block}}
+    {{/parent}}
+    four
+''';
+      const parentSource = r'''
+wrap {{$block}}six{{/block}} wrap
+''';
+      final parent = Template(parentSource);
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'parent') {
+          return parent;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{});
+      expect(output, equals('one\n  two\n    wrap three wrap\n    four\n'));
+    });
+
     test('Nested block reindentation with deep multiline indents', () {
       const templateSource = r'''
 one
