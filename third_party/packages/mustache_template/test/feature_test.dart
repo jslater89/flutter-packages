@@ -856,8 +856,77 @@ two
         'variable': 'three',
       });
       expect(output, equals('zero\n  three\ntwo\n'));
-     });
+    });
 
+
+    test('Multiline block reindentation', () {
+      const templateSource = r'''
+one
+  two
+    {{<parent}}{{$block}}
+      three
+      four
+    {{/block}}{{/parent}}
+    five
+''';
+      const parentSource = r'''
+{{$block}}
+seven
+eight
+{{/block}}
+''';
+      final parent = Template(parentSource);
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'parent') {
+          return parent;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{});
+      expect(output, equals('one\n  two\n    three\n    four\n    five\n'));
+    });
+
+    test('Nested block reindentation with deep multiline indents', () {
+      const templateSource = r'''
+one
+  two
+    {{>partial}}
+''';
+      const partialSource = r'''
+three
+{{<parent}}
+{{$block}}
+  five
+  six
+{{/block}}
+{{/parent}}
+''';
+
+      const parentSource = r'''
+four
+  {{$block}}{{/block}}
+''';
+
+      final parent = Template(parentSource);
+      final partial = Template(partialSource, partialResolver: (name) {
+        if (name == 'parent') {
+          return parent;
+        }
+        return null;
+      });
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'partial') {
+          return partial;
+        }
+        if (name == 'parent') {
+          return parent;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{
+      });
+      expect(output, equals('one\n  two\n    three\n    four\n      five\n      six\n'));
+     });
   });
 
   group('Other', () {

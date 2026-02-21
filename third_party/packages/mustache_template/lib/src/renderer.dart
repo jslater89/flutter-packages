@@ -64,7 +64,7 @@ class Renderer extends Visitor {
          ctx.htmlEscapeValues,
          ctx.partialResolver,
          ctx.templateName,
-         block.indent,
+         ctx.indent + block.indent,
          ctx.source,
          implicitIndent: block.indent,
          blockOverrides: ctx._blockOverrides,
@@ -111,7 +111,7 @@ class Renderer extends Visitor {
 
   void write(Object output) => sink.write(output.toString());
 
-  void render(List<Node> nodes) {
+  void render(List<Node> nodes, {bool writeInitialIndent = true}) {
     if (indent == '') {
       for (final n in nodes) {
         n.accept(this);
@@ -119,15 +119,32 @@ class Renderer extends Visitor {
     } else if (nodes.isNotEmpty) {
       // Special case to make sure there is not an extra indent after the last
       // line in the partial file.
-      write(indent);
+      if(writeInitialIndent) {
+        write(indent);
+      }
 
-      nodes.take(nodes.length - 1).forEach((Node n) => n.accept(this));
+      int lastNonBlockNode = nodes.length - 1;
+      for(int i = nodes.length - 2; i >= 0; i--) {
+        if (nodes[i + 1] is BlockNode) {
+          lastNonBlockNode = i;
+          break;
+        }
+      }
 
-      final Node node = nodes.last;
-      if (node is TextNode) {
-        visitText(node, lastNode: true);
-      } else {
-        node.accept(this);
+      // lastNode controls whether the last line of text prints an
+      // indent on the following line if its last rune is a newline.
+      // Since block nodes handle their own initial indentation, we
+      // want to treat the last node that isn't a block node as lastNode.
+      for(final (index, node) in nodes.indexed) {
+        if (index < lastNonBlockNode) {
+          node.accept(this);
+        } else {
+          if (node is TextNode) {
+            visitText(node, lastNode: true);
+          } else {
+            node.accept(this);
+          }
+        }
       }
     }
   }
@@ -308,7 +325,9 @@ class Renderer extends Visitor {
         node.indent,
         merged,
       );
-      renderer.render(nodes);
+
+      // If the first node is a BlockNode, its renderer indents all its lines.
+      renderer.render(nodes, writeInitialIndent: nodes.firstOrNull is! BlockNode);
     } else if (lenient) {
       // do nothing
     } else {
@@ -320,18 +339,15 @@ class Renderer extends Visitor {
   /// that is being overridden by a child template. renderNodes is the content
   /// from the child template that should be rendered in place of the block in
   /// the current template.
-  ///
-  /// Sub-blocks/parents are rendered recursively. All other blocks are rendered
-  /// with the indentation from this block.
   @override
   void visitBlock(BlockNode node) {
     final List<Node> renderNodes = _blockOverrides[node.name] ?? node.children;
 
-    final renderer = Renderer.block(
+    final blockRenderer = Renderer.block(
       this,
       node,
     );
-    renderer.render(renderNodes);
+    blockRenderer.render(renderNodes, writeInitialIndent: renderNodes.firstOrNull is! BlockNode);
   }
 
   // Walks up the stack looking for the variable.
