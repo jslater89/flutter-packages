@@ -892,14 +892,19 @@ one
   two
     {{>partial}}
 ''';
+      // {{/block}} on the same line as six is present for the same reason
+      // as in ~inheritance.yml:Standalone block, to prevent outputting a
+      // second extra newline (as {{/block}} on a separate line means we
+      // would preserve the newline after six, as well as the one in parentSource
+      // following the close-block tag.)
       const partialSource = r'''
 three
 {{<parent}}
-{{$block}}
-  five
-  six
-{{/block}}
+  {{$block}}
+    five
+    six{{/block}}
 {{/parent}}
+  seven
 ''';
 
       const parentSource = r'''
@@ -925,7 +930,7 @@ four
       });
       final String output = template.renderString(<String, Object>{
       });
-      expect(output, equals('one\n  two\n    three\n    four\n      five\n      six\n'));
+      expect(output, equals('one\n  two\n    three\n    four\n      five\n      six\n      seven\n'));
      });
   });
 
