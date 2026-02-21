@@ -55,6 +55,7 @@ class Parser {
        _scanner = Scanner(source, templateName, delimiters);
 
   static final RegExp _lineEndRegex = RegExp(r'\r?\n');
+  static final RegExp _nonNewlineWhitespaceRegex = RegExp(r'[\r\t ]+');
   final String _source;
   final bool _lenient;
   final String? _templateName;
@@ -354,7 +355,7 @@ class Parser {
 
         // \r\n safety: we look for all non-\n whitespace characters including \r in our prefix, and
         // substringing on the index of \n discards the \r.
-        if (block.isArgument && block.startClearRight && firstText.text.startsWith(RegExp(r'^[\r\s\t\v ]*\n'))) {
+        if (block.isArgument && block.startClearRight && firstText.text.startsWith(RegExp(r'^[\r\t ]*\n'))) {
           final int newlineIndex = firstText.text.indexOf('\n');
           if (newlineIndex != -1) {
             firstText.text = firstText.text.substring(newlineIndex + 1);
@@ -388,6 +389,7 @@ class Parser {
 
     // For nested blocks, intrinsic indentation is relative to the parent block's indendation,
     // so subtract the indentation of any ancestor blocks from this block's intrinsic indentation.
+    final String originalIntrinsicIndentation = block.indent;
     String intrinsicIndentation = block.indent;
     Node? parent = block.parent;
     while (parent != null) {
@@ -411,12 +413,29 @@ class Parser {
           final List<String> lines = child.text.split('\n');
           for(var i = 0; i < lines.length; i++) {
             String line = lines[i];
-            if (line.startsWith(block.indent)) {
-              line = line.substring(block.indent.length);
+            if (line.startsWith(originalIntrinsicIndentation)) {
+              line = line.substring(originalIntrinsicIndentation.length);
             }
             lines[i] = line;
           }
           child.text = lines.join('\n');
+        }
+      }
+    }
+
+    // If the block's content has whitespace after a trailing newline, remove it.
+    TextNode? lastText;
+    for(final Node child in block.children) {
+      if (child is TextNode) {
+        lastText = child;
+      }
+    }
+    if (lastText != null) {
+      final int lastNewline = lastText.text.lastIndexOf('\n');
+      if (lastNewline != -1) {
+        final String textAfterLastNewline = lastText.text.substring(lastNewline + 1);
+        if (textAfterLastNewline.trim().isEmpty) {
+          lastText.text = lastText.text.substring(0, lastNewline + 1);
         }
       }
     }

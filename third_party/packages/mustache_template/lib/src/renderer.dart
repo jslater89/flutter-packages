@@ -20,6 +20,7 @@ class Renderer extends Visitor {
     this.templateName,
     this.indent,
     this.source, {
+    this.implicitIndent = '',
     Map<String, List<Node>> blockOverrides = const {},
   }) : _stack = List<Object?>.from(stack),
        _blockOverrides = blockOverrides;
@@ -65,6 +66,7 @@ class Renderer extends Visitor {
          ctx.templateName,
          block.indent,
          ctx.source,
+         implicitIndent: block.indent,
          blockOverrides: ctx._blockOverrides,
        );
 
@@ -99,6 +101,7 @@ class Renderer extends Visitor {
   final m.PartialResolver? partialResolver;
   final String? templateName;
   final String indent;
+  final String implicitIndent;
   final String source;
   final Map<String, List<Node>> _blockOverrides;
 
@@ -323,8 +326,6 @@ class Renderer extends Visitor {
   @override
   void visitBlock(BlockNode node) {
     final List<Node> renderNodes = _blockOverrides[node.name] ?? node.children;
-
-
 
     final renderer = Renderer.block(
       this,
