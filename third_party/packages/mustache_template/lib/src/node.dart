@@ -185,6 +185,11 @@ class BlockNode extends ContainerNode {
   /// replaced by an argument block in a child template.
   bool get isParameter => !isArgument;
 
+  /// If this block is a parameter block, and it is replaced by an argument block,
+  /// this field will be set to the value of the argument block when the parameter
+  /// block selects its replacement.
+  BlockNode? replacedWith;
+
   @override
   void accept(Visitor visitor) => visitor.visitBlock(this);
 

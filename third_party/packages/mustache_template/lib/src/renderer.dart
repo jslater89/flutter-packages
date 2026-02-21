@@ -21,7 +21,7 @@ class Renderer extends Visitor {
     this.indent,
     this.source, {
     this.implicitIndent = '',
-    Map<String, List<Node>> blockOverrides = const {},
+    Map<String, BlockNode> blockOverrides = const {},
   }) : _stack = List<Object?>.from(stack),
        _blockOverrides = blockOverrides;
 
@@ -41,7 +41,7 @@ class Renderer extends Visitor {
     Renderer ctx,
     Template parent,
     String indent,
-    Map<String, List<Node>> blockOverrides
+    Map<String, BlockNode> blockOverrides
   ) : this(
          ctx.sink,
          ctx._stack,
@@ -103,7 +103,7 @@ class Renderer extends Visitor {
   final String indent;
   final String implicitIndent;
   final String source;
-  final Map<String, List<Node>> _blockOverrides;
+  final Map<String, BlockNode> _blockOverrides;
 
   void push(Object? value) => _stack.add(value);
 
@@ -111,6 +111,15 @@ class Renderer extends Visitor {
 
   void write(Object output) => sink.write(output.toString());
 
+  /// Render a list of nodes.
+  ///
+  /// If [writeInitialIndent] is true, the current indent will be written before the first node.
+  /// (Note that some nodes handle their own indentation as either part of their visit methods, or
+  /// because they create sub-renderers.)
+  ///
+  /// [argumentBlock] and [parameterBlock] must be provided if this is a block renderer and [nodes] is substituted
+  /// from a child template. [parameterBlock] is the block in the current template that is being overridden by a child template.
+  /// [argumentBlock] is the block in the child template that should be rendered in place of the parameter block in the current template.
   void render(List<Node> nodes, {bool writeInitialIndent = true}) {
     if (indent == '') {
       for (final n in nodes) {
@@ -141,20 +150,47 @@ class Renderer extends Visitor {
         if (index > 0) {
           previousNode = nodes[index - 1];
         }
+
+        if(node is TextNode) {
+          _handleWhitespaceSpecialCases(node, previousNode);
+        }
         if (index < lastNonBlockNode) {
           node.accept(this);
         } else {
           if (node is TextNode) {
-            // If the previous node is a standalone container node and the current node is a non-empty text node,
-            // write an indent: standalone containers write the trailing newline internally.
-            if (previousNode is ContainerNode && previousNode.isContainerStandalone && node.text.trim().isNotEmpty) {
-              write(indent);
-            }
             visitText(node, lastNode: true);
           } else {
             node.accept(this);
           }
         }
+      }
+    }
+  }
+
+  void _handleWhitespaceSpecialCases(TextNode node, Node? previousNode) {
+    if(node.text.trim().isEmpty) {
+      return;
+    }
+
+    final bool previousNodeIsStandaloneContainer = previousNode is ContainerNode && previousNode.isContainerStandalone;
+    if(previousNodeIsStandaloneContainer) {
+      write(indent);
+    }
+
+    // If the previous node is an inline parameter block (e.g. `text {{$block}}...{{/block}} text`),
+    // and the argument block is standalone, the argument block's contents will probably write a newline, which
+    // will add a line we didn't account for when parsing the text surrounding the parameter block—a text node
+    // following a standalone argument block replacing an inline parameter block starts a new line. It also may
+    // have leading whitespace from the gap between the close delimiter and the start of the following content.
+    // So, we: 1. trim the text node's leading whitespace to get to the start of the line, 2. write the current
+    // renderer's indent, and 3. write the text node's text, so it aligns with the current renderer's indent.
+    if (previousNode is BlockNode && previousNode.isParameter) {
+      final BlockNode? argumentBlock = previousNode.replacedWith;
+      final bool argumentBlockStandalone = argumentBlock != null && argumentBlock.isInnerStandalone;
+      final bool parameterBlockInline = !previousNode.isContainerStandalone;
+      if(argumentBlockStandalone && parameterBlockInline) {
+        node.text = node.text.trimLeft();
+        write(indent);
       }
     }
   }
@@ -308,19 +344,19 @@ class Renderer extends Visitor {
   @override
   void visitParent(ParentNode node) {
     // Collect block overrides from this parent's children (only BlockNodes).
-    final overridesFromChild = <String, List<Node>>{};
+    final overridesFromChild = <String, BlockNode>{};
 
     for (var i = 0; i < node.children.length; i++) {
       final Node child = node.children[i];
       if (child is BlockNode) {
-        overridesFromChild[child.name] = child.children;
+        overridesFromChild[child.name] = child;
       }
     }
     // Merge with current overrides: existing (outer/descendant) overrides take precedence.
-    final merged = Map<String, List<Node>>.from(
+    final merged = Map<String, BlockNode>.from(
       _blockOverrides,
     );
-    for (final MapEntry<String, List<Node>> e in overridesFromChild.entries) {
+    for (final MapEntry<String, BlockNode> e in overridesFromChild.entries) {
       merged.putIfAbsent(e.key, () => e.value);
     }
     final String parentName = node.name;
@@ -350,13 +386,17 @@ class Renderer extends Visitor {
   /// the current template.
   @override
   void visitBlock(BlockNode node) {
-    final List<Node> renderNodes = _blockOverrides[node.name] ?? node.children;
+    final BlockNode? overrideBlock = _blockOverrides[node.name];
+    node.replacedWith = overrideBlock;
+    final List<Node> renderNodes = overrideBlock?.children ?? node.children;
 
     final blockRenderer = Renderer.block(
       this,
       node,
     );
-    blockRenderer.render(renderNodes, writeInitialIndent: _shouldWriteInitialIndent(renderNodes, container: node));
+    blockRenderer.render(renderNodes,
+      writeInitialIndent: _shouldWriteInitialIndent(renderNodes, container: node),
+    );
   }
 
   // Walks up the stack looking for the variable.
