@@ -156,8 +156,8 @@ class Renderer extends Visitor {
     }
     if (indent == '') {
       write(node.text);
-    } else if (lastNode && node.text.runes.last == _NEWLINE) {
-      // Don't indent after the last line in a template.
+    } else if (node.text.runes.last == _NEWLINE) {
+      // Never indent following the final newline in a node.
       final String s = node.text.substring(0, node.text.length - 1);
       write(s.replaceAll('\n', '\n$indent'));
       write('\n');
@@ -189,7 +189,7 @@ class Renderer extends Visitor {
       final String output = !node.escape || !htmlEscapeValues
           ? valueString
           : _htmlEscape(valueString);
-      write(output);
+      write(indent + output);
     }
   }
 

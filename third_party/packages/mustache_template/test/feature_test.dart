@@ -836,6 +836,7 @@ two
       const templateSource = r'''
 {{<parent}}{{$block}}
   {{variable}}
+    four
 {{/block}}{{/parent}}
 ''';
       const parentSource = r'''
@@ -855,7 +856,7 @@ two
       final String output = template.renderString(<String, Object>{
         'variable': 'three',
       });
-      expect(output, equals('zero\n  three\ntwo\n'));
+      expect(output, equals('zero\n  three\n    four\ntwo\n'));
     });
 
 
