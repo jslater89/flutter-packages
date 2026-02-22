@@ -52,6 +52,9 @@ class VariableNode extends Node {
   String intrinsicIndent;
   final bool escape;
 
+  bool clearLeft = false;
+  bool clearRight = false;
+
   @override
   void accept(Visitor visitor) => visitor.visitVariable(this);
 

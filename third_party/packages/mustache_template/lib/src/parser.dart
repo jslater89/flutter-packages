@@ -115,10 +115,14 @@ class Parser {
               : '';
           _pendingWhitespace = null;
           _afterLineEnd = false;
+
           final Node? node = _createNodeFromTag(tag, partialIndent: indent);
           if (node is ContainerNode) {
             node.startClearLeft = atLineStart;
+          } else if (node is VariableNode) {
+            node.clearLeft = atLineStart;
           }
+
           if (tag != null) {
             final bool consumesIndent =
                 (tag.type == TagType.openBlock ||
@@ -135,7 +139,7 @@ class Parser {
           _currentDelimiters = token.value;
 
         case TokenType.lineEnd:
-          _checkContainerTagClearRight();
+          _checkTagClearRight();
           _flushPendingWhitespace();
           _afterLineEnd = true;
           _appendTextToken(_read()!);
@@ -150,7 +154,7 @@ class Parser {
     // 1. if the last token is a close delimeter
     // 2. if that close delimiter closes a container tag
     // 3. if that closing tag clears right
-    _checkContainerTagClearRight();
+    _checkTagClearRight();
 
     if (_stack.length != 1) {
       throw TemplateException(
@@ -445,7 +449,7 @@ class Parser {
 
   /// Check if the most recent non-whitespace token is an opensContainer tag or a close tag that
   /// corresponds to the node at the top of the stack, and mark it as clear right if so.
-  void _checkContainerTagClearRight() {
+  void _checkTagClearRight() {
     // Look back from the current offset for a non-whitespace token.
     Token? lastToken;
     int? lastOffset;
@@ -480,6 +484,20 @@ class Parser {
     final int sigilTokenOffset = nameTokenOffset - 1;
     final Token sigilToken = _tokens[sigilTokenOffset];
     if (sigilToken.type != TokenType.sigil) {
+      if (sigilToken.type == TokenType.openDelimiter) {
+        // open-delim idenitifer close-delim is a variable tag
+        final Node topOfStack = _stack.last;
+        if(topOfStack is ContainerNode) {
+          final List<Node> children = topOfStack.children;
+          for(int i = children.length - 1; i >= 0; i--) {
+            final Node child = children[i];
+            if(child is VariableNode) {
+              child.clearRight = true;
+              break;
+            }
+          }
+        }
+      }
       return;
     }
 
@@ -701,10 +719,9 @@ class Parser {
         // for whitespace, or the following newline.
         // Record standalone status of the tag.
         final Node? tagNode;
-        if(tag.type.opensContainer) {
+        if (tag.type.opensContainer) {
           tagNode = tagNodes[tag];
-        }
-        else {
+        } else {
           tagNode = _getContainerNodeForCloseTag(tag);
         }
 
@@ -729,26 +746,30 @@ class Parser {
           _appendTextToken(precedingWhitespace);
         }
 
-        // Record standalone status of the tag.
+        // Record clearance status of the tag.
         Node? tagNode;
         if(tag != null) {
           parsedTag = true;
-          if(tag.type.opensContainer) {
+          final bool isVariableTag = tag.type == TagType.variable || tag.type == TagType.unescapedVariable || tag.type == TagType.tripleMustache;
+          if (isVariableTag || tag.type.opensContainer) {
             tagNode = tagNodes[tag];
-          }
-          else {
+          } else {
             tagNode = _getContainerNodeForCloseTag(tag);
           }
         }
 
-        if(tag != null && tagNode != null && tagNode is ContainerNode) {
-          // We're parsing the beginning of a line, so the tag is
-          // clear left.
-          if(tag.type.opensContainer) {
-            tagNode.startClearLeft = true;
-          }
-          else {
-            tagNode.endClearLeft = true;
+        if (tag != null && tagNode != null) {
+          if (tagNode is ContainerNode) {
+            // We're parsing the beginning of a line, so the tag is
+            // clear left.
+            if(tag.type.opensContainer) {
+              tagNode.startClearLeft = true;
+            }
+            else {
+              tagNode.endClearLeft = true;
+            }
+          } else if (tagNode is VariableNode) {
+            tagNode.clearLeft = true;
           }
         }
 

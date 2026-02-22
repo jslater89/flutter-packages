@@ -958,6 +958,27 @@ two
       expect(output, equals('one\n  two\n    three\n      four\n'));
     });
 
+    test('No indentation in inline variable', () {
+      const templateSource = r'''
+one
+  {{>partial}}
+''';
+      const partialSource = r'''
+two {{variable}} four
+''';
+      final partial = Template(partialSource);
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'partial') {
+          return partial;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{
+        'variable': 'three',
+      });
+      expect(output, equals('one\n  two three four\n'));
+    });
+
     test('Nested block reindentation with deep multiline indents', () {
       const templateSource = r'''
 one

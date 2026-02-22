@@ -111,6 +111,8 @@ class Renderer extends Visitor {
 
   void write(Object output) => sink.write(output.toString());
 
+  Node? lastNode;
+
   /// Render a list of nodes.
   ///
   /// If [writeInitialIndent] is true, the current indent will be written before the first node.
@@ -124,6 +126,7 @@ class Renderer extends Visitor {
     if (indent == '') {
       for (final n in nodes) {
         n.accept(this);
+        lastNode = n;
       }
     } else if (nodes.isNotEmpty) {
       // Special case to make sure there is not an extra indent after the last
@@ -163,6 +166,7 @@ class Renderer extends Visitor {
             node.accept(this);
           }
         }
+        lastNode = node;
       }
     }
   }
@@ -235,7 +239,12 @@ class Renderer extends Visitor {
       final String output = !node.escape || !htmlEscapeValues
           ? valueString
           : _htmlEscape(valueString);
-      write(indent + output);
+
+      if (node.clearLeft) {
+        write(indent + output);
+      } else {
+        write(output);
+      }
     }
   }
 
