@@ -55,7 +55,6 @@ class Parser {
        _scanner = Scanner(source, templateName, delimiters);
 
   static final RegExp _lineEndRegex = RegExp(r'\r?\n');
-  static final RegExp _nonNewlineWhitespaceRegex = RegExp(r'[\r\t ]+');
   final String _source;
   final bool _lenient;
   final String? _templateName;

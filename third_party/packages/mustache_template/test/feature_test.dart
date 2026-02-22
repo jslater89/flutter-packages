@@ -958,6 +958,36 @@ two
       expect(output, equals('one\n  two\n    three\n      four\n'));
     });
 
+    test('Indentation following standalone container', () {
+      const templateSource = r'''
+one
+  two
+    {{<partial}}
+      {{$block}}
+      three
+      four{{/block}}
+    {{/partial}}
+  five
+six
+''';
+      const partialSource = r'''
+wrap
+  {{$block}}{{/block}}
+unwrap
+''';
+      final partial = Template(partialSource);
+      final template = Template(templateSource, partialResolver: (name) {
+        if (name == 'partial') {
+          return partial;
+        }
+        return null;
+      });
+      final String output = template.renderString(<String, Object>{
+        'section': true,
+      });
+      expect(output, equals('one\n  two\n    wrap\n      three\n      four\n    unwrap\n  five\nsix\n'));
+    });
+
     test('No indentation in inline variable', () {
       const templateSource = r'''
 one

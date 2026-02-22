@@ -173,6 +173,14 @@ class Renderer extends Visitor {
 
   void _handleWhitespaceSpecialCases(TextNode node, Node? previousNode) {
     if(node.text.trim().isEmpty) {
+      // Never indent a whitespace-only text node (including newlines)
+      return;
+    }
+
+    if(node.text.startsWith(_lineEndRegex)) {
+      // Never add an indent before a text node that starts with a newline,
+      // to avoid extra trailing whitespace after a previous text line, or
+      // a line that is only whitespace followed by a newline.
       return;
     }
 
@@ -518,3 +526,4 @@ const int _QUOTE = 34;
 const int _APOS = 39;
 const int _FORWARD_SLASH = 47;
 const int _NEWLINE = 10;
+final RegExp _lineEndRegex = RegExp(r'\r?\n');
