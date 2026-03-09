@@ -35,18 +35,18 @@ void main() {
     test('Map', () {
       final String output = parse('{{#section}}_{{var}}_{{/section}}')
           .renderString(<String, Map<String, String>>{
-            'section': <String, String>{'var': 'bob'},
-          });
+        'section': <String, String>{'var': 'bob'},
+      });
       expect(output, equals('_bob_'));
     });
     test('List', () {
       final String output = parse('{{#section}}_{{var}}_{{/section}}')
           .renderString(<String, List<Map<String, String>>>{
-            'section': <Map<String, String>>[
-              <String, String>{'var': 'bob'},
-              <String, String>{'var': 'jim'},
-            ],
-          });
+        'section': <Map<String, String>>[
+          <String, String>{'var': 'bob'},
+          <String, String>{'var': 'jim'},
+        ],
+      });
       expect(output, equals('_bob__jim_'));
     });
     test('Empty List', () {
@@ -88,18 +88,17 @@ void main() {
     });
 
     test('Nested', () {
-      final String output =
-          parse(
-            '{{#section}}.{{var}}.{{#nested}}_{{nestedvar}}_{{/nested}}.{{/section}}',
-          ).renderString(<String, Map<String, Object>>{
-            'section': <String, Object>{
-              'var': 'bob',
-              'nested': <Map<String, String>>[
-                <String, String>{'nestedvar': 'jim'},
-                <String, String>{'nestedvar': 'sally'},
-              ],
-            },
-          });
+      final String output = parse(
+        '{{#section}}.{{var}}.{{#nested}}_{{nestedvar}}_{{/nested}}.{{/section}}',
+      ).renderString(<String, Map<String, Object>>{
+        'section': <String, Object>{
+          'var': 'bob',
+          'nested': <Map<String, String>>[
+            <String, String>{'nestedvar': 'jim'},
+            <String, String>{'nestedvar': 'sally'},
+          ],
+        },
+      });
       expect(output, equals('.bob._jim__sally_.'));
     });
 
@@ -199,9 +198,9 @@ void main() {
 
     test('Odd whitespace in tags', () {
       void render(String source, dynamic values, dynamic output) => expect(
-        parse(source, lenient: true).renderString(values),
-        equals(output),
-      );
+            parse(source, lenient: true).renderString(values),
+            equals(output),
+          );
 
       render('{{\t# foo}}oi{{\n/foo}}', <String, bool>{'foo': true}, 'oi');
 
@@ -235,10 +234,13 @@ void main() {
         ' OI! ',
       );
 
-      render('{{{ #foo }}} {{{ /foo }}}', <String, int>{
-        '#foo': 1,
-        '/foo': 2,
-      }, '1 2');
+      render(
+          '{{{ #foo }}} {{{ /foo }}}',
+          <String, int>{
+            '#foo': 1,
+            '/foo': 2,
+          },
+          '1 2');
 
       // Invalid - I'm ok with that for now.
       //      render(
@@ -257,17 +259,22 @@ void main() {
 
     test('Sigils in tag names in lenient mode', () {
       void render(String source, dynamic values, dynamic output) => expect(
-        parse(source, lenient: true).renderString(values),
-        equals(output),
-      );
+            parse(source, lenient: true).renderString(values),
+            equals(output),
+          );
 
       // Even in lenient mode, tag names may not be a single sigil
       // character.
-      expect(() => parse('{{#}}', lenient: true), throwsA(isA<TemplateException>()));
-      expect(() => parse('{{>}}', lenient: true), throwsA(isA<TemplateException>()));
-      expect(() => parse('{{&}}', lenient: true), throwsA(isA<TemplateException>()));
-      expect(() => parse('{{/}}', lenient: true), throwsA(isA<TemplateException>()));
-      expect(() => parse('{{^}}', lenient: true), throwsA(isA<TemplateException>()));
+      expect(() => parse('{{#}}', lenient: true),
+          throwsA(isA<TemplateException>()));
+      expect(() => parse('{{>}}', lenient: true),
+          throwsA(isA<TemplateException>()));
+      expect(() => parse('{{&}}', lenient: true),
+          throwsA(isA<TemplateException>()));
+      expect(() => parse('{{/}}', lenient: true),
+          throwsA(isA<TemplateException>()));
+      expect(() => parse('{{^}}', lenient: true),
+          throwsA(isA<TemplateException>()));
 
       // >a means 'a partial named "a"', not a variable named ">a",
       // and in lenient mode the missing partial should fail silently
@@ -299,18 +306,18 @@ void main() {
     test('Map', () {
       final String output = parse('{{^section}}_{{var}}_{{/section}}')
           .renderString(<String, Map<String, String>>{
-            'section': <String, String>{'var': 'bob'},
-          });
+        'section': <String, String>{'var': 'bob'},
+      });
       expect(output, equals(''));
     });
     test('List', () {
       final String output = parse('{{^section}}_{{var}}_{{/section}}')
           .renderString(<String, List<Map<String, String>>>{
-            'section': <Map<String, String>>[
-              <String, String>{'var': 'bob'},
-              <String, String>{'var': 'jim'},
-            ],
-          });
+        'section': <Map<String, String>>[
+          <String, String>{'var': 'bob'},
+          <String, String>{'var': 'jim'},
+        ],
+      });
       expect(output, equals(''));
     });
     test('Empty List', () {
@@ -478,35 +485,32 @@ void main() {
 
   group('Lenient', () {
     test('Odd section name', () {
-      final String output =
-          parse(
-            r'{{#section$%$^%}}_{{var}}_{{/section$%$^%}}',
-            lenient: true,
-          ).renderString(<String, Map<String, String>>{
-            r'section$%$^%': <String, String>{'var': 'bob'},
-          });
+      final String output = parse(
+        r'{{#section$%$^%}}_{{var}}_{{/section$%$^%}}',
+        lenient: true,
+      ).renderString(<String, Map<String, String>>{
+        r'section$%$^%': <String, String>{'var': 'bob'},
+      });
       expect(output, equals('_bob_'));
     });
 
     test('Odd variable name', () {
-      final String output =
-          parse(
-            r'{{#section}}_{{var$%$^%}}_{{/section}}',
-            lenient: true,
-          ).renderString(<String, Map<String, String>>{
-            'section': <String, String>{r'var$%$^%': 'bob'},
-          });
+      final String output = parse(
+        r'{{#section}}_{{var$%$^%}}_{{/section}}',
+        lenient: true,
+      ).renderString(<String, Map<String, String>>{
+        'section': <String, String>{r'var$%$^%': 'bob'},
+      });
       expect(output, equals('_bob_'));
     });
 
     test('Null variable', () {
-      final String output =
-          parse(
-            r'{{#section}}_{{var}}_{{/section}}',
-            lenient: true,
-          ).renderString(<String, Map<String, void>>{
-            'section': <String, void>{'var': null},
-          });
+      final String output = parse(
+        r'{{#section}}_{{var}}_{{/section}}',
+        lenient: true,
+      ).renderString(<String, Map<String, void>>{
+        'section': <String, void>{'var': null},
+      });
       expect(output, equals('__'));
     });
 
@@ -646,10 +650,11 @@ void main() {
       required String template,
       dynamic lambda,
       dynamic output,
-    }) => expect(
-      parse(template).renderString(<String, dynamic>{'lambda': lambda}),
-      equals(output),
-    );
+    }) =>
+        expect(
+          parse(template).renderString(<String, dynamic>{'lambda': lambda}),
+          equals(output),
+        );
 
     test('basic', () {
       lambdaTest(
@@ -773,7 +778,6 @@ void main() {
   });
 
   group('Inheritance', () {
-
     test('Nested block reindentation with outermost indentation', () {
       const templateSource = r'''
 {{<parent}}{{$nested}}
@@ -803,17 +807,16 @@ void main() {
       final template = Template(templateSource, partialResolver: (name) {
         if (name == 'parent') {
           return parent;
-        }
-        else if (name == 'grandparent') {
+        } else if (name == 'grandparent') {
           return grandparent;
         }
         return null;
       });
       final String output = template.renderString(<String, Object>{});
       expect(output, equals('  one\n    three\n'));
-     });
+    });
 
-     test('Nested block reindentation with interior section', () {
+    test('Nested block reindentation with interior section', () {
       const templateSource = r'''
 {{<parent}}{{$block}}
   {{#section}}three{{/section}}
@@ -837,8 +840,7 @@ two
         'section': true,
       });
       expect(output, equals('zero\n  three\ntwo\n'));
-     });
-
+    });
 
     test('Nested block reindentation with interior variable', () {
       const templateSource = r'''
@@ -866,7 +868,6 @@ two
       });
       expect(output, equals('zero\n  three\n    four\ntwo\n'));
     });
-
 
     test('Multiline block reindentation', () {
       const templateSource = r'''
@@ -938,7 +939,8 @@ wrap {{$block}}six{{/block}} wrap
         return null;
       });
       final String output = template.renderString(<String, Object>{});
-      expect(output, equals('one\n  two\n    wrap three\n    wrap\n    four\n'));
+      expect(
+          output, equals('one\n  two\n    wrap three\n    wrap\n    four\n'));
     });
 
     test('Indentation following standalone container', () {
@@ -993,7 +995,10 @@ unwrap
       final String output = template.renderString(<String, Object>{
         'section': true,
       });
-      expect(output, equals('one\n  two\n    wrap\n      three\n      four\n    unwrap\n  five\nsix\n'));
+      expect(
+          output,
+          equals(
+              'one\n  two\n    wrap\n      three\n      four\n    unwrap\n  five\nsix\n'));
     });
 
     test('No indentation in inline variable', () {
@@ -1060,10 +1065,12 @@ four
         }
         return null;
       });
-      final String output = template.renderString(<String, Object>{
-      });
-      expect(output, equals('one\n  two\n    three\n    four\n      five\n      six\n      seven\n      eight\n'));
-     });
+      final String output = template.renderString(<String, Object>{});
+      expect(
+          output,
+          equals(
+              'one\n  two\n    three\n    four\n      five\n      six\n      seven\n      eight\n'));
+    });
   });
 
   group('Other', () {
