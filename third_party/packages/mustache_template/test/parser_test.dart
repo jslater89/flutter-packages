@@ -430,7 +430,7 @@ void main() {
       ex.toString();
     });
 
-    Function parseFail(String source) {
+    void Function() parseFail(String source) {
       return () {
         final parser = Parser(source, 'foo', '{{ }}');
         parser.parse();
@@ -438,7 +438,7 @@ void main() {
     }
 
     test('parse eof', () {
-      void expectTemplateEx(Function shouldThrow) =>
+      void expectTemplateEx(void Function() shouldThrow) =>
           expect(shouldThrow, throwsA(isA<TemplateException>()));
 
       expectTemplateEx(parseFail('{{#foo}}{{bar}}{{/foo}'));
